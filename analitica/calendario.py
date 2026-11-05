@@ -37,14 +37,15 @@ class Calendario:
         self._feriados_numpy = np.array(sorted(self.feriados), dtype="datetime64[D]")
 
     def es_habil(self, fecha: date) -> bool:
+        fecha = _dia(fecha)
         return fecha.weekday() < 5 and fecha not in self.feriados
 
     def sumar_habiles(self, desde: date, n: int) -> date:
         """El día `desde` no cuenta: el día 1 es el siguiente día hábil. Como Java: habilitada un viernes con 2 días,
-        vence el martes."""
+        vence el martes. Un datetime se pasa antes a su fecha en Buenos Aires."""
         if n < 0:
             raise ValueError("Los días no pueden ser negativos")
-        fecha, restantes = desde, n
+        fecha, restantes = _dia(desde), n
         while restantes > 0:
             fecha += _UN_DIA
             if self.es_habil(fecha):

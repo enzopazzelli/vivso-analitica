@@ -1,7 +1,7 @@
-pandas>=2.2            # las 13 tablas de cada lectura
-numpy>=2.0             # días hábiles (busday_count) y el azar sembrado del simulador
-Faker>=30.0            # personas inventadas (es_AR) para el origen simulado
-holidays>=0.60         # feriados nacionales de respaldo cuando no hay conexión
-httpx>=0.27            # descarga de feriados de ArgentinaDatos
-python-dotenv>=1.0     # lee el .env al correr python -m analitica
-tzdata>=2024.1         # zonas horarias en Windows (America/Argentina/Buenos_Aires)
+pandas==3.0.6           # las tablas de cada lectura
+numpy==2.5.4            # días hábiles (busday_count) y el azar sembrado del simulador
+Faker==40.43.0          # personas inventadas (es_AR) para el origen simulado
+holidays==0.107         # feriados nacionales de respaldo cuando no hay conexión
+httpx==0.28.1           # descarga de feriados de ArgentinaDatos
+python-dotenv==1.2.4    # lee el .env al correr python -m analitica
+tzdata==2026.5          # zonas horarias en Windows (America/Argentina/Buenos_Aires)

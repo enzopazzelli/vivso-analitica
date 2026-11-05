@@ -10,6 +10,12 @@ PUENTE, MEMORIA = date(2026, 3, 23), date(2026, 3, 24)          # lunes y martes
 CON_FERIADOS = Calendario({PUENTE, MEMORIA})
 
 
+def test_un_datetime_se_cuenta_por_su_fecha():
+    calendario = Calendario([date(2026, 10, 12)])
+    assert calendario.es_habil(datetime(2026, 10, 12, 9, 30)) is False
+    assert calendario.sumar_habiles(datetime(2026, 10, 9, 18, 0), 1) == date(2026, 10, 13)
+
+
 @pytest.mark.parametrize("desde, n, esperado", [
     (VIERNES, 2, MARTES),                                         # el ejemplo de CalendarioService.java
     (SABADO, 1, LUNES), (DOMINGO, 1, LUNES), (SABADO, 2, MARTES),
