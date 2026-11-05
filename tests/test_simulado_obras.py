@@ -33,7 +33,7 @@ def mundo_con(**cambios):
     return generar(replace(PARAMETROS, obras_previas=10, meses_posteriores=0, **cambios))
 
 
-def proyectar_mundo(orgs, sols, obras, error_prorroga_java=True):
+def proyectar_mundo(orgs, sols, obras, error_prorroga_java=False):
     con_ids, mapa = asignar_ids(orgs.hechos + sols.hechos + obras.hechos)
     return proyectar(con_ids, FIN, error_prorroga_java=error_prorroga_java), mapa
 
@@ -96,8 +96,21 @@ def test_sin_conexion_las_fotos_llegan_en_rafaga():
         assert all(f.momento_real < f.momento_registrado for f in fotos)
 
 
+def test_sin_el_error_de_java_las_prorrogadas_se_envian():
+    orgs, sols, obras = mundo_con(prob_prorroga=1.0, duracion_mediana=3.0)
+    filas, mapa = proyectar_mundo(orgs, sols, obras)
+    assert not [e for e in filas["etapas"] if e["estado"] == "PRORROGADA"]
+    assert all(etapas[-1]["estado"] == "APROBADA" for etapas in por_obra(filas).values())
+    assert any(e["fecha_limite"] != e["fecha_limite_original"] for e in filas["etapas"])
+    # Desde la prórroga se siguen subiendo fotos (Java las acepta en PRORROGADA).
+    prorrogas = {x.datos["id_etapa_obra"]: x.momento_registrado for x in obras.hechos if x.accion == "prorrogar_etapa"}
+    assert any(x.accion == "subir_foto" and x.datos["id_etapa_obra"] in prorrogas
+               and x.momento_registrado > prorrogas[x.datos["id_etapa_obra"]] for x in obras.hechos)
+
+
 def test_con_el_error_de_java_las_prorrogadas_quedan_trabadas():
-    filas, _ = proyectar_mundo(*mundo_con(prob_prorroga=1.0, duracion_mediana=3.0))
+    filas, _ = proyectar_mundo(*mundo_con(prob_prorroga=1.0, duracion_mediana=3.0, error_prorroga_java=True),
+                               error_prorroga_java=True)
     prorrogadas = 0
     for etapas in por_obra(filas).values():
         for n, e in enumerate(etapas):
@@ -106,10 +119,15 @@ def test_con_el_error_de_java_las_prorrogadas_quedan_trabadas():
                 assert e["estado"] == "PRORROGADA"
                 assert all(posterior["fecha_inicio"] is None for posterior in etapas[n + 1:])
     assert prorrogadas > 0
-    sin_error, _ = proyectar_mundo(*mundo_con(prob_prorroga=1.0, duracion_mediana=3.0, error_prorroga_java=False),
-                                   error_prorroga_java=False)
-    assert not [e for e in sin_error["etapas"] if e["estado"] == "PRORROGADA"]
-    assert all(etapas[-1]["estado"] == "APROBADA" for etapas in por_obra(sin_error).values())
+
+
+def test_con_rechazo_la_obra_se_detiene():
+    filas, _ = proyectar_mundo(*mundo_con(prob_rechazo_etapa=1.0))
+    obras = por_obra(filas)
+    assert obras
+    for etapas in obras.values():
+        assert etapas[0]["estado"] == "RECHAZADA"
+        assert all(e["estado"] == "PENDIENTE" for e in etapas[1:])
 
 
 def test_la_proyeccion_no_viola_reglas_de_java(filas):

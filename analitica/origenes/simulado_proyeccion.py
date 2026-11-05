@@ -1,13 +1,14 @@
-"""La proyección del origen simulado: aplica los hechos de la verdad sobre las 13 tablas con las reglas de Java.
+"""La proyección del origen simulado: aplica los hechos de la verdad sobre las 14 tablas con las reglas de Java.
 
 Cada acción replica un método de los servicios de Desarrollo (`SolicitudService`, `EtapaObraService`, etc.): las mismas
 precondiciones (si no se cumplen, `ReglaDeJava`), los mismos campos que se pisan y la hora del servidor, que es el
-momento en que el hecho llegó (`momento_registrado`). Como en Java, no queda historia: cada acción sobrescribe.
+momento en que el hecho llegó (`momento_registrado`). Como en Java, no queda historia: cada acción sobrescribe. Lo único
+que se acumula son las notificaciones, que Java guarda en cada acción sobre una etapa y nunca borra.
 """
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from analitica.calendario import CALENDARIO_JAVA
 from analitica.catalogo import CLASIFICACIONES, ETAPAS, ROLES, TIPOS_VIVIENDA, etapa, siguiente
@@ -64,13 +65,19 @@ def _al_minuto(momento: datetime) -> datetime:
     return momento.replace(second=0, microsecond=0)
 
 
-_ESTADOS_CON_FOTOS = ("EN_CURSO", "OBSERVADA")
+# FotoEtapaService: se suben fotos en EN_CURSO, OBSERVADA o PRORROGADA y se borran solo en EN_CURSO u OBSERVADA. El Java
+# anterior al 31/10/2026 (el del error de la prórroga) tampoco aceptaba fotos en PRORROGADA.
+_ESTADOS_BORRAR_FOTOS = ("EN_CURSO", "OBSERVADA")
+_ESTADOS_SUBIR_FOTOS = ("EN_CURSO", "OBSERVADA", "PRORROGADA")
+_ESTADOS_PRORROGA = ("EN_CURSO", "OBSERVADA", "EN_REVISION", "PRORROGADA")
 _PERSONA = ("dni", "nombre", "apellido", "correo", "telefono", "fecha_alta_cargo", "domicilio")
 
 
 class _Proyeccion:
-    def __init__(self, error_prorroga_java: bool):
+    def __init__(self, error_prorroga_java: bool, desfase_notificaciones_horas: int = 0):
         self.error_prorroga_java = error_prorroga_java
+        self.desfase_notificaciones = timedelta(hours=desfase_notificaciones_horas)
+        self.notificaciones_guardadas = 0
         self.tablas: dict[str, dict] = {t: {} for t in TABLAS}
         self.etapas_de: dict[int, list[int]] = {}               # id_solicitud → ids de sus 6 etapas, en orden
         self.documentos_de_familia: dict[int, list[int]] = defaultdict(list)
@@ -100,18 +107,46 @@ class _Proyeccion:
     def _documentos(self, ids, accion: str) -> list[dict]:
         return [self._fila(accion, "documentos", i) for i in ids]
 
+    def _rol(self, id_usuario) -> str | None:
+        usuario = self.tablas["usuarios"].get(id_usuario)
+        return None if usuario is None else usuario["rol"]
+
+    # --- notificaciones (NotificacionService) ---
+
+    def _usuarios_de_la_organizacion(self, cuit: str) -> list[int]:
+        """notificarOng: cada integrante activo y con usuario de la organización, en orden de id."""
+        integrantes = sorted((i for i in self.tablas["integrantes"].values() if i["cuit_org"] == cuit),
+                             key=lambda i: i["id_integrante"])
+        return [i["id_usuario"] for i in integrantes if i["activo"] and i["id_usuario"] is not None]
+
+    def _notificar(self, h: Hecho, id_solicitud: int, tipo: str, destinatarios: Iterable[int]) -> None:
+        """Una fila por destinatario, con la hora del servidor (corrida por el desfase de la JVM) y sin leer."""
+        for id_usuario in destinatarios:
+            self.notificaciones_guardadas += 1
+            n = self.notificaciones_guardadas
+            self._nueva("notificaciones", n, id_notificacion=n, id_usuario=id_usuario, tipo=tipo,
+                        id_referencia=id_solicitud, fecha=h.momento_registrado + self.desfase_notificaciones, leida=False)
+
+    def _notificar_organizacion(self, h: Hecho, id_solicitud: int, tipo: str) -> None:
+        cuit = self.tablas["solicitudes"][id_solicitud]["cuit_org"]
+        self._notificar(h, id_solicitud, tipo, self._usuarios_de_la_organizacion(cuit))
+
     # --- usuarios y organizaciones ---
 
     def crear_usuario(self, h: Hecho) -> None:
         d = h.datos
         self._exigir(d["rol"] in ROLES, f"crear_usuario: rol desconocido {d['rol']}")
-        self._usuario_nuevo("crear_usuario", d["id_usuario"], d["username"], d["rol"], d["email"])
+        self._usuario_nuevo("crear_usuario", d["id_usuario"], d["username"], d["rol"], d["email"],
+                            nombre=d.get("nombre"), apellido=d.get("apellido"))
 
-    def _usuario_nuevo(self, accion: str, id_usuario: int, username: str, rol: str, email: str) -> None:
+    def _usuario_nuevo(self, accion: str, id_usuario: int, username: str, rol: str, email: str,
+                       nombre: str | None = None, apellido: str | None = None) -> None:
+        """El personal se registra con nombre y apellido; los usuarios de integrantes los crea el alta sin ellos."""
         usuarios = self.tablas["usuarios"].values()
         self._exigir(all(u["username"] != username for u in usuarios), f"{accion}: el username {username} ya existe")
         self._exigir(all(u["email"] != email for u in usuarios), f"{accion}: el correo {email} ya está en uso")
-        self._nueva("usuarios", id_usuario, id_usuario=id_usuario, username=username, rol=rol, email=email, activo=True)
+        self._nueva("usuarios", id_usuario, id_usuario=id_usuario, username=username, rol=rol, email=email, activo=True,
+                    nombre=nombre, apellido=apellido)
 
     def registrar_alta(self, h: Hecho) -> None:
         d = h.datos
@@ -222,6 +257,21 @@ class _Proyeccion:
     def asignar_expediente(self, h: Hecho) -> None:
         self._fila("asignar_expediente", "solicitudes", h.datos["id_solicitud"])["num_exp"] = h.datos["num_exp"]
 
+    def asignar_tecnico(self, h: Hecho) -> None:
+        """SolicitudService.asignarTecnico (ruta solo para ARQUITECTO y ADMIN): el usuario tiene que ser TECNICO y la
+        solicitud no puede tener visita inicial (después de la visita no se reasigna)."""
+        d = h.datos
+        sol = self._fila("asignar_tecnico", "solicitudes", d["id_solicitud"])
+        self._exigir(self._rol(h.autor) in ("ARQUITECTO", "ADMIN"),
+                     f"asignar_tecnico: el usuario {h.autor} tiene rol {self._rol(h.autor)}; solo un ARQUITECTO o un "
+                     f"ADMIN asigna técnicos")
+        self._exigir(self._rol(d["id_tecnico"]) == "TECNICO",
+                     f"asignar_tecnico: el usuario {d['id_tecnico']} tiene rol {self._rol(d['id_tecnico'])}; hay que "
+                     f"asignar un TECNICO")
+        self._exigir(all(v["id_solicitud"] != d["id_solicitud"] for v in self.tablas["visitas_iniciales"].values()),
+                     f"asignar_tecnico: la solicitud {d['id_solicitud']} ya tiene visita inicial; no se reasigna")
+        sol["id_tecnico_asignado"] = d["id_tecnico"]
+
     def marcar_documento(self, h: Hecho) -> None:
         doc = self._fila("marcar_documento", "documentos", h.datos["id_documento"])
         self._exigir(doc["estado"] == "PENDIENTE",
@@ -255,8 +305,7 @@ class _Proyeccion:
         sol = self._fila("aprobar_solicitud", "solicitudes", d["id_solicitud"])
         self._exigir(sol["estado"] != "Aprobada", f"aprobar_solicitud: la solicitud {d['id_solicitud']} ya está aprobada")
         self._exigir(bool(sol["num_exp"]), f"aprobar_solicitud: la solicitud {d['id_solicitud']} no tiene número de expediente")
-        sol.update(estado="Aprobada", fecha_activacion=h.momento_registrado.date(), id_revisor=h.autor,
-                   id_tecnico_asignado=d.get("id_tecnico_asignado"))
+        sol.update(estado="Aprobada", fecha_activacion=h.momento_registrado.date(), id_revisor=h.autor)
         # La vivienda nace vacía: solo la familia y la solicitud (SolicitudService.aprobarSolicitudVivienda).
         self._nueva("viviendas", d["id_vivienda"], id_vivienda=d["id_vivienda"], id_solicitud=d["id_solicitud"],
                     id_familia=sol["id_familia"])
@@ -277,6 +326,7 @@ class _Proyeccion:
         d = dict(h.datos)
         self._fila("visita_inicial", "solicitudes", d["id_solicitud"])
         self._exigir(d["clasificacion"] in CLASIFICACIONES, f"visita_inicial: clasificación desconocida {d['clasificacion']}")
+        self._tecnico_asignado("visita_inicial", d["id_solicitud"], h.autor)      # VisitaInicialService
         fotos = d.pop("fotos")
         # La única fecha que viene del celular.
         self._nueva("visitas_iniciales", d["id_visita"], fecha_visita=h.momento_real, id_tecnico=h.autor, **d)
@@ -291,8 +341,8 @@ class _Proyeccion:
         fila.update(estado="EN_CURSO", fecha_inicio=hoy, fecha_limite=limite, fecha_limite_original=limite)
 
     def _tecnico_asignado(self, accion: str, id_solicitud: int, autor) -> None:
-        """EtapaObraService.validarTecnicoAsignado: solo el técnico asignado a la solicitud inicia la obra y aprueba,
-        observa o prorroga sus etapas (sin excepción para ADMIN). Sin técnico asignado, nadie puede."""
+        """validarTecnicoAsignado: solo el técnico asignado a la solicitud registra la visita inicial, inicia la obra y
+        aprueba, observa, prorroga o rechaza sus etapas (sin excepción para ADMIN). Sin técnico asignado, nadie puede."""
         asignado = self.tablas["solicitudes"][id_solicitud]["id_tecnico_asignado"]
         self._exigir(asignado is not None and asignado == autor,
                      f"{accion}: solo el técnico asignado a la solicitud {id_solicitud} puede hacerlo "
@@ -317,17 +367,19 @@ class _Proyeccion:
                              numero=e.numero, estado="PENDIENTE")
                  for id_etapa, e in zip(d["etapas"], ETAPAS)]
         self._activar(filas[0], h)
+        self._notificar_organizacion(h, d["id_solicitud"], "ETAPA_HABILITADA")
 
     def subir_foto(self, h: Hecho) -> None:
         d = h.datos
-        self._etapa("subir_foto", d["id_etapa_obra"], _ESTADOS_CON_FOTOS, "acepta fotos")
+        permitidos = _ESTADOS_BORRAR_FOTOS if self.error_prorroga_java else _ESTADOS_SUBIR_FOTOS
+        self._etapa("subir_foto", d["id_etapa_obra"], permitidos, "acepta fotos")
         self._nueva("fotos_etapa", d["id_foto"], id_foto=d["id_foto"], id_etapa_obra=d["id_etapa_obra"],
                     nombre_archivo=d["nombre_archivo"], ruta_archivo=d["ruta_archivo"],
                     fecha_subida=h.momento_registrado, id_usuario_subida=h.autor)
 
     def borrar_foto(self, h: Hecho) -> None:
         foto = self._fila("borrar_foto", "fotos_etapa", h.datos["id_foto"])
-        self._etapa("borrar_foto", foto["id_etapa_obra"], _ESTADOS_CON_FOTOS, "deja borrar fotos")
+        self._etapa("borrar_foto", foto["id_etapa_obra"], _ESTADOS_BORRAR_FOTOS, "deja borrar fotos")
         del self.tablas["fotos_etapa"][h.datos["id_foto"]]     # el borrado no deja rastro
 
     def enviar_etapa(self, h: Hecho) -> None:
@@ -336,6 +388,9 @@ class _Proyeccion:
         fila = self._etapa("enviar_etapa", d["id_etapa_obra"], permitidos, "envía")
         fila.update(estado="EN_REVISION", fecha_envio=_al_minuto(h.momento_registrado),
                     observacion_organizacion=d.get("observacion_organizacion"), id_usuario_envio=h.autor)
+        tecnico = self.tablas["solicitudes"][fila["id_solicitud"]]["id_tecnico_asignado"]
+        if tecnico is not None:                                  # notificarUsuario al técnico asignado
+            self._notificar(h, fila["id_solicitud"], "ETAPA_ENVIADA", [tecnico])
 
     def aprobar_etapa(self, h: Hecho) -> None:
         fila = self._etapa("aprobar_etapa", h.datos["id_etapa_obra"], ("EN_REVISION",), "aprueba")
@@ -345,22 +400,34 @@ class _Proyeccion:
         if proxima:
             id_proxima = self.etapas_de[fila["id_solicitud"]][proxima.numero - 1]
             self._activar(self.tablas["etapas"][id_proxima], h)
+        # Habilitar la siguiente no genera ETAPA_HABILITADA: solo la aprobación.
+        self._notificar_organizacion(h, fila["id_solicitud"], "ETAPA_APROBADA")
 
     def observar_etapa(self, h: Hecho) -> None:
         fila = self._etapa("observar_etapa", h.datos["id_etapa_obra"], ("EN_REVISION",), "observa")
         self._tecnico_asignado("observar_etapa", fila["id_solicitud"], h.autor)
         fila.update(estado="OBSERVADA", observacion_tecnico=h.datos["observacion_tecnico"],
                     fecha_revision=_al_minuto(h.momento_registrado), id_revisor=h.autor)
+        self._notificar_organizacion(h, fila["id_solicitud"], "ETAPA_OBSERVADA")
+
+    def rechazar_etapa(self, h: Hecho) -> None:
+        """EtapaObraService.rechazarEtapa: deja la etapa RECHAZADA, de la que ninguna regla la saca."""
+        fila = self._etapa("rechazar_etapa", h.datos["id_etapa_obra"], ("EN_REVISION",), "rechaza")
+        self._tecnico_asignado("rechazar_etapa", fila["id_solicitud"], h.autor)
+        fila.update(estado="RECHAZADA", observacion_tecnico=h.datos["motivo"],
+                    fecha_revision=_al_minuto(h.momento_registrado), id_revisor=h.autor)
+        self._notificar_organizacion(h, fila["id_solicitud"], "ETAPA_RECHAZADA")
 
     def prorrogar_etapa(self, h: Hecho) -> None:
         d = h.datos
-        fila = self._etapa("prorrogar_etapa", d["id_etapa_obra"], ("EN_CURSO", "OBSERVADA", "PRORROGADA"), "prorroga")
+        fila = self._etapa("prorrogar_etapa", d["id_etapa_obra"], _ESTADOS_PRORROGA, "prorroga")
         self._tecnico_asignado("prorrogar_etapa", fila["id_solicitud"], h.autor)
         nueva = d["fecha_limite"]
         self._exigir(nueva > fila["fecha_limite"],
                      f"prorrogar_etapa: la fecha nueva {nueva} tiene que ser posterior al límite vigente {fila['fecha_limite']}")
         self._exigir(CALENDARIO_JAVA.es_habil(nueva), f"prorrogar_etapa: la fecha nueva {nueva} no es día hábil")
         fila.update(estado="PRORROGADA", fecha_limite=nueva, motivo_prorroga=d["motivo"])
+        self._notificar_organizacion(h, fila["id_solicitud"], "ETAPA_PRORROGADA")
 
     def visita_obra(self, h: Hecho) -> None:
         d = h.datos
@@ -372,17 +439,19 @@ class _Proyeccion:
 
 ACCIONES = frozenset({
     "crear_usuario", "registrar_alta", "observar_alta", "corregir_alta", "aprobar_alta", "rechazar_alta",
-    "agregar_integrante", "registrar_solicitud", "asignar_expediente", "marcar_documento", "reemplazar_documento",
-    "semiaprobar_solicitud", "confirmar_correccion", "aprobar_solicitud", "rechazar_solicitud", "completar_vivienda",
-    "visita_inicial", "iniciar_obra", "subir_foto", "borrar_foto", "enviar_etapa", "aprobar_etapa", "observar_etapa",
-    "prorrogar_etapa", "visita_obra",
+    "agregar_integrante", "registrar_solicitud", "asignar_expediente", "asignar_tecnico", "marcar_documento",
+    "reemplazar_documento", "semiaprobar_solicitud", "confirmar_correccion", "aprobar_solicitud", "rechazar_solicitud",
+    "completar_vivienda", "visita_inicial", "iniciar_obra", "subir_foto", "borrar_foto", "enviar_etapa",
+    "aprobar_etapa", "observar_etapa", "rechazar_etapa", "prorrogar_etapa", "visita_obra",
 })
 
 
-def proyectar(hechos: Iterable[Hecho], corte: datetime, *, error_prorroga_java: bool = True) -> dict[str, list[dict]]:
-    """Las 13 tablas como las vería Java en el momento `corte`: aplica, en orden de llegada, los hechos que llegaron al
-    servidor hasta ese momento (inclusive)."""
-    proyeccion = _Proyeccion(error_prorroga_java)
+def proyectar(hechos: Iterable[Hecho], corte: datetime, *, error_prorroga_java: bool = False,
+              desfase_notificaciones_horas: int = 0) -> dict[str, list[dict]]:
+    """Las 14 tablas como las vería Java en el momento `corte`: aplica, en orden de llegada, los hechos que llegaron al
+    servidor hasta ese momento (inclusive). `desfase_notificaciones_horas` corre la hora de las notificaciones, que Java
+    toma de la zona de la JVM ([E24])."""
+    proyeccion = _Proyeccion(error_prorroga_java, desfase_notificaciones_horas)
     llegados = [h for h in hechos if h.momento_registrado <= corte]
     for hecho in sorted(llegados, key=lambda x: x.momento_registrado):
         if hecho.accion not in ACCIONES:

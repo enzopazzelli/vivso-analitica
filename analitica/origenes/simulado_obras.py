@@ -22,8 +22,8 @@ from analitica.catalogo import ETAPAS, TOTAL_DIAS_ESTIMADOS, etapa
 from analitica.origenes.simulado_comun import dia_habil, entero, momento_habil
 from analitica.origenes.simulado_proyeccion import Hecho, Ref
 from analitica.origenes.simulado_solicitudes import ObraPorIniciar
-from analitica.parametros_simulacion import (DEPARTAMENTOS_URBANOS, MOTIVOS_PRORROGA, OBSERVACIONES_ORGANIZACION,
-                                              OBSERVACIONES_TECNICO, ParametrosSimulacion)
+from analitica.parametros_simulacion import (DEPARTAMENTOS_URBANOS, MOTIVOS_PRORROGA, MOTIVOS_RECHAZO_ETAPA,
+                                              OBSERVACIONES_ORGANIZACION, OBSERVACIONES_TECNICO, ParametrosSimulacion)
 
 
 @dataclass(frozen=True)
@@ -79,13 +79,13 @@ class _Generador:
         activacion = obra.inicio
         for e, id_etapa in zip(ETAPAS, ids_etapas):
             activacion = self.etapa(obra, e.codigo, id_etapa, activacion, prob_sin_conexion, reales)
-            if activacion is None:      # trabada: la obra termina ahí
+            if activacion is None:      # rechazada (o trabada, con [E10]): la obra termina ahí
                 return
 
     def etapa(self, obra: ObraPorIniciar, codigo: str, id_etapa: Ref, activacion: datetime, prob_sin_conexion: float,
               reales: list[EtapaReal]) -> datetime | None:
-        """Genera las rondas de una etapa. Devuelve el momento en que se aprobó (activa la siguiente) o None si quedó
-        trabada por el error de Java en las prórrogas."""
+        """Genera las rondas de una etapa. Devuelve el momento en que se aprobó (activa la siguiente) o None si la
+        rechazaron ([E23]) o quedó trabada por el error de Java en las prórrogas ([E10] activado)."""
         p, rng = self.p, self.rng
         estimados = etapa(codigo).dias_estimados
         inicio = activacion.date()
@@ -106,13 +106,16 @@ class _Generador:
                 self.hecho("prorrogar_etapa", momento, obra.tecnico, id_etapa_obra=id_etapa, fecha_limite=limite,
                            motivo=str(self.elegir(MOTIVOS_PRORROGA)))
                 prorrogada = True
-                # Desde la prórroga Java no acepta fotos (FotoEtapaService pide EN_CURSO u OBSERVADA).
-                fotos = [f for f in fotos if f["registrado"] < momento]
-                if borrado and (borrado["registrado"] >= momento or borrado["foto"] not in fotos):
-                    borrado = None
                 if p.error_prorroga_java:
+                    # El Java anterior al 31/10/2026 no aceptaba fotos en PRORROGADA ni dejaba enviarla: queda trabada.
+                    fotos = [f for f in fotos if f["registrado"] < momento]
+                    if borrado and (borrado["registrado"] >= momento or borrado["foto"] not in fotos):
+                        borrado = None
                     self.fotos(fotos, borrado, usuario)
-                    return None         # enviarEtapa no acepta PRORROGADA: queda trabada
+                    return None
+                # FotoEtapaService acepta fotos en PRORROGADA, pero no deja borrarlas.
+                if borrado and borrado["registrado"] >= momento:
+                    borrado = None
             self.fotos(fotos, borrado, usuario)
             texto = (str(self.elegir(OBSERVACIONES_ORGANIZACION)) if rng.random() < p.prob_observacion_organizacion
                      else None)
@@ -122,6 +125,11 @@ class _Generador:
             revision = momento_habil(dia_revision, rng)
             if revision <= envio:
                 revision = envio + timedelta(minutes=entero(rng, (5, 120)))
+            # [E23] Solo se sortea si está activado, así el mundo por defecto no cambia.
+            if p.prob_rechazo_etapa > 0 and rng.random() < p.prob_rechazo_etapa:
+                self.hecho("rechazar_etapa", revision, obra.tecnico, id_etapa_obra=id_etapa,
+                           motivo=str(self.elegir(MOTIVOS_RECHAZO_ETAPA)))
+                return None             # RECHAZADA no tiene salida: la obra se detiene ahí
             if ronda < p.rondas_max and rng.random() < p.prob_observacion:
                 self.hecho("observar_etapa", revision, obra.tecnico, id_etapa_obra=id_etapa,
                            observacion_tecnico=str(self.elegir(OBSERVACIONES_TECNICO)))

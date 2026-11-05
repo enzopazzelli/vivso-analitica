@@ -49,8 +49,11 @@ def test_personal_y_altas(mundo):
 def test_el_grupo_inventado_es_el_que_deduce_el_catalogo(mundo):
     altas = [x.datos for x in mundo.hechos if x.accion == "registrar_alta"]
     por_cuit = {o.cuit: o for o in mundo.organizaciones}
-    assert {a["tipo"] for a in altas} <= {"Municipio", "Comisión Municipal", "Asociación civil", "Cooperativa"}
+    # Los tipos de TipoOrganizacion.java; las OG no tienen tipo propio y eligen «Otra».
+    tipos = {a["tipo"] for a in altas}
+    assert tipos <= {"Asociación Civil", "Cooperativa", "Otra"} and "Otra" in tipos
     assert all(grupo_organizacion(a["tipo"], a["nombre"]).grupo == por_cuit[a["cuit"]].grupo for a in altas)
+    assert all(por_cuit[a["cuit"]].grupo == "OG" for a in altas if a["tipo"] == "Otra")
 
 
 def test_las_fechas_de_las_altas(mundo):
@@ -70,6 +73,9 @@ def test_la_proyeccion_no_viola_reglas_de_java(mundo):
     assert len({u["username"] for u in usuarios}) == len(usuarios) == len({u["email"] for u in usuarios})
     de_integrantes = {i["id_usuario"] for i in con_usuario}
     assert {u["rol"] for u in usuarios if u["id_usuario"] in de_integrantes} == {"INTEGRANTE"}
+    # El personal se registra con nombre y apellido; los usuarios que crea el alta, sin ellos (como en Java).
+    assert all(u["nombre"] and u["apellido"] for u in usuarios if u["rol"] != "INTEGRANTE")
+    assert all(u["nombre"] is None and u["apellido"] is None for u in usuarios if u["rol"] == "INTEGRANTE")
 
 
 def test_reproducible(mundo):

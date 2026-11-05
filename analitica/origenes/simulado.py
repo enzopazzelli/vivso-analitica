@@ -61,7 +61,8 @@ class OrigenSimulado:
 
     def leer_al(self, corte: date | datetime) -> Lectura:
         momento = fin_del_corte(corte)
-        filas = proyectar(self._generar(), momento, error_prorroga_java=self.parametros.error_prorroga_java)
+        filas = proyectar(self._generar(), momento, error_prorroga_java=self.parametros.error_prorroga_java,
+                          desfase_notificaciones_horas=self.parametros.desfase_notificaciones_horas)
         lectura = Lectura(origen=self.codigo, leido_en=momento, tablas={t: armar_tabla(t, filas[t]) for t in TABLAS})
         verificar_lectura(lectura)
         return lectura

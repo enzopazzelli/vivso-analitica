@@ -34,7 +34,7 @@ class ParametrosSimulacion:
     prob_sin_conexion_urbano: float = 0.20                # [E9]
     prob_sin_conexion_resto: float = 0.50
     demora_sin_conexion_dias: tuple[int, int] = (1, 5)
-    error_prorroga_java: bool = True                      # [E10]
+    error_prorroga_java: bool = False                     # [E10] Java lo arregló el 31/10/2026; True = el Java anterior
     prob_sin_obra: float = 0.25                           # [E11]
     familiares: tuple[int, int] = (1, 8)                  # [E12]
     antiguedad_rancho: tuple[int, int] = (5, 40)
@@ -56,16 +56,20 @@ class ParametrosSimulacion:
     fotos_por_ronda: tuple[int, int] = (2, 6)             # [E17]
     prob_foto_borrada: float = 0.10
     prob_ronda_sin_fotos: float = 0.05
-    # [E19] Java no deja iniciar ni revisar una obra sin técnico asignado (validarTecnicoAsignado), y hoy ningún flujo
-    # lo completa: el simulador supone la vista del arquitecto y lo asigna al aprobar. Con False, ninguna obra podría
-    # iniciarse (sirve solo para mundos sin obras).
+    # [E19] El arquitecto asigna el técnico (SolicitudService.asignarTecnico) entre el registro y la visita inicial, y la
+    # visita la hace ese técnico; sin técnico asignado no hay visita ni obra (validarTecnicoAsignado). Con False no se
+    # asigna ninguno y ninguna solicitud pasa de Pendiente.
     asignar_tecnico: bool = True
+    asignacion_tecnico_dias: tuple[int, int] = (1, 10)
+    prob_tecnico_sin_visita: float = 0.50                 #      pendientes sin visita que ya tienen técnico
     habitantes_desvio: int = 1                            # [E20] visita inicial
     prob_prioridad_social: float = 0.30
     fotos_visita: tuple[int, int] = (2, 5)
     prob_observacion_organizacion: float = 0.50           # [E21] textos de listas fijas inventadas
     prob_departamento_de_la_organizacion: float = 0.70    # [E22] ubicación
     desvio_coordenadas: float = 0.05
+    prob_rechazo_etapa: float = 0.0                       # [E23] hoy nadie puede rechazar en Java
+    desfase_notificaciones_horas: int = 0                 # [E24] 3 = una JVM en UTC
 
 
 PARAMETROS = ParametrosSimulacion()
@@ -146,6 +150,11 @@ OBSERVACIONES_ORGANIZACION = (
     "Se adjuntan las fotos pedidas",
     "Terminamos con demora por la lluvia",
     "Quedó lista para revisar",
+)
+MOTIVOS_RECHAZO_ETAPA = (                                 # [E23]
+    "La obra no respeta los planos del prototipo",
+    "Se usaron materiales distintos de los aprobados",
+    "Las fotos no corresponden a la vivienda",
 )
 MOTIVOS_PRORROGA = (
     "Lluvias",

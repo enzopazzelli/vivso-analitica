@@ -201,6 +201,8 @@ son 30 días.
 | `[E20]` | Visita inicial | clasificación con pesos inventados (la más frecuente, `TIPO_2A`, 20 %); habitantes = familiares ± 1; prioridad social 30 %; 2 a 5 fotos |
 | `[E21]` | Textos | motivos y observaciones de listas fijas inventadas; la organización deja un texto en el 50 % de los envíos |
 | `[E22]` | Ubicación | el 70 % de las solicitudes en el departamento de la organización; coordenadas alrededor de la cabecera (desvío 0,05°) dentro de la provincia |
+| `[E23]` | Rechazo de etapa | probabilidad 0 en cada revisión, porque hoy nadie puede rechazar una etapa en el sistema de Desarrollo; con un valor mayor, el técnico rechaza en vez de aprobar u observar y la obra se detiene ahí |
+| `[E24]` | Notificaciones | se guardan como en el sistema de Desarrollo: una por integrante activo con usuario (inicio de obra, aprobación, observación, prórroga y rechazo) y una para el técnico asignado (envío), con la hora de llegada más un desfase de 0 horas (3 sirve para probar un servidor en hora UTC), sin marcar como leídas |
 | `[S15]` | Departamentos | los 18 departamentos de Santiago del Estero con su cabecera, sus coordenadas y su peso de población, del simulador de PP2 |
 
 ## 8. Lo que no modela

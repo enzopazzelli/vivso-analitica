@@ -31,7 +31,7 @@ def test_cada_supuesto_esta_documentado():
     codigo = (RAIZ / "analitica" / "parametros_simulacion.py").read_text(encoding="utf-8")
     documento = (RAIZ / "docs" / "simulacion.md").read_text(encoding="utf-8")
     etiquetas = set(re.findall(r"\[E\d+\]", codigo)) | {"[E18]"}
-    assert etiquetas == {f"[E{n}]" for n in range(1, 23)}
+    assert etiquetas == {f"[E{n}]" for n in range(1, 25)}
     assert etiquetas <= set(re.findall(r"\[E\d+\]", documento))
 
 

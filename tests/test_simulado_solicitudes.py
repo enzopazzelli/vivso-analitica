@@ -106,12 +106,28 @@ def test_la_proyeccion_no_viola_reglas_de_java(filas):
     assert 0.60 <= len(completadas) / len(aprobadas) <= 0.80
     for v in completadas:
         assert v["tipo_vivienda"] in TIPOS_VIVIENDA and 40 <= v["superficie"] <= 60 and v["cant_dormitorios"] in (2, 3)
-    # Java no deja iniciar ni revisar una obra sin técnico asignado: el simulador lo asigna al aprobar ([E19]).
+    # Java no deja hacer la visita ni iniciar una obra sin técnico asignado: lo asigna el arquitecto antes ([E19]).
     assert all(s["id_tecnico_asignado"] is not None for s in aprobadas.values())
 
 
-def test_sin_la_vista_del_arquitecto_no_hay_tecnico_asignado():
+def test_el_tecnico_se_asigna_antes_de_la_visita_y_la_hace_el(sols):
+    asignacion = {x.datos["id_solicitud"]: x for x in sols.hechos if x.accion == "asignar_tecnico"}
+    visitas = [x for x in sols.hechos if x.accion == "visita_inicial"]
+    assert visitas
+    for visita in visitas:
+        asignada = asignacion[visita.datos["id_solicitud"]]
+        assert asignada.momento_registrado < visita.momento_registrado
+        assert visita.autor == asignada.datos["id_tecnico"]
+    registros = momentos(sols, "registrar_solicitud")
+    assert all(registros[s] < x.momento_registrado for s, x in asignacion.items())
+    # De las pendientes sin visita, algunas ya tienen técnico y otras no ([E19]).
+    sin_visita = set(registros) - {v.datos["id_solicitud"] for v in visitas}
+    assert 0 < len(sin_visita & set(asignacion)) < len(sin_visita)
+
+
+def test_sin_la_vista_del_arquitecto_nada_pasa_de_pendiente():
     orgs, sols = generar(replace(PARAMETROS, asignar_tecnico=False))
     con_ids, _ = asignar_ids(orgs.hechos + sols.hechos)
-    aprobadas = [s for s in proyectar(con_ids, FIN)["solicitudes"] if s["estado"] == "Aprobada"]
-    assert aprobadas and all(s["id_tecnico_asignado"] is None for s in aprobadas)
+    filas = proyectar(con_ids, FIN)
+    assert {s["estado"] for s in filas["solicitudes"]} == {"Pendiente"}
+    assert filas["visitas_iniciales"] == [] and sols.obras == []

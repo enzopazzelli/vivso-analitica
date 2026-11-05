@@ -68,7 +68,7 @@ class _Generador:
                 ref = Ref("usuarios", f"{rol.lower()}-{n}")
                 lista.append(ref)
                 self.hecho("crear_usuario", inicio + timedelta(minutes=minuto), None, id_usuario=ref, username=username,
-                           rol=rol, email=datos["correo"])
+                           rol=rol, email=datos["correo"], nombre=datos["nombre"], apellido=datos["apellido"])
                 minuto += 1
 
     # --- altas ---
@@ -90,14 +90,15 @@ class _Generador:
         departamentos_og = iter(self.rng.choice(len(DEPARTAMENTOS), size=cantidad_og, replace=False, p=pesos / pesos.sum()))
         for numero, (final, og) in enumerate(zip(finales, es_og)):
             if og:
+                # TipoOrganizacion.java no tiene un tipo para las OG: eligen «Otra» y el grupo sale del nombre.
                 departamento = DEPARTAMENTOS[int(next(departamentos_og))]
-                tipo = "Municipio" if numero % 2 == 0 else "Comisión Municipal"
-                nombre = (f"Municipalidad de {departamento.localidad}" if tipo == "Municipio"
+                tipo = "Otra"
+                nombre = (f"Municipalidad de {departamento.localidad}" if numero % 2 == 0
                           else f"Comisión Municipal de {departamento.localidad}")
             else:
                 departamento = DEPARTAMENTOS[int(self.rng.choice(len(DEPARTAMENTOS), p=pesos / pesos.sum()))]
-                tipo = str(self.rng.choice(["Asociación civil", "Cooperativa"]))
-                nombre = (f"Asociación Civil {self.fake.last_name()}" if tipo == "Asociación civil"
+                tipo = str(self.rng.choice(["Asociación Civil", "Cooperativa"]))
+                nombre = (f"Asociación Civil {self.fake.last_name()}" if tipo == "Asociación Civil"
                           else f"Cooperativa de Trabajo {self.fake.last_name()} Ltda.")
             self.alta(numero, final, "OG" if og else "ONG", departamento.nombre, tipo, nombre)
 

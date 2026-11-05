@@ -25,7 +25,21 @@ def alta(cuando, id_alta=1, cuit="30-11111111-1", documentos=()):
              documentos=list(documentos))
 
 
-def solicitud_aprobada(cuando=VIERNES - timedelta(days=30)):
+BASE = VIERNES - timedelta(days=30)
+
+
+def personal(cuando):
+    """Dos técnicos (5 y 6) y un arquitecto (7), creados antes que todo lo demás."""
+    return [h("crear_usuario", cuando + timedelta(minutes=n), None, id_usuario=id_usuario, username=username, rol=rol,
+              email=f"{username}@example.com", nombre=nombre, apellido=apellido)
+            for n, (id_usuario, username, rol, nombre, apellido) in enumerate([
+                (5, "tec.uno", "TECNICO", "Tec", "Uno"), (6, "tec.dos", "TECNICO", "Tec", "Dos"),
+                (7, "arq.uno", "ARQUITECTO", "Arq", "Uno")])]
+
+
+def solicitud_aprobada(cuando=BASE):
+    # El personal va al final de la lista (con una hora anterior) para que los tres primeros hechos sigan siendo el
+    # alta, su aprobación y el registro de la solicitud (_solicitud_registrada); proyectar ordena por llegada.
     return [
         alta(cuando),
         h("aprobar_alta", cuando + timedelta(hours=1), 9, id_solicitud_org=1, presidente=PRESIDENTE, tesorero=TESORERO),
@@ -33,8 +47,16 @@ def solicitud_aprobada(cuando=VIERNES - timedelta(days=30)):
           cantidad_familiares=4, antiguedad_rancho=10,
           documentos=[dict(id_documento=1, tipo="DNI_FAMILIARES", nombre_original="dni.pdf", url="u/1")]),
         h("asignar_expediente", cuando + timedelta(days=2), 9, id_solicitud=1, num_exp="EXP-2026-0001"),
-        h("aprobar_solicitud", cuando + timedelta(days=3), 9, id_solicitud=1, id_vivienda=1, id_tecnico_asignado=5),
+        h("asignar_tecnico", cuando + timedelta(days=2, hours=1), 7, id_solicitud=1, id_tecnico=5),
+        h("aprobar_solicitud", cuando + timedelta(days=3), 9, id_solicitud=1, id_vivienda=1),
+        *personal(cuando - timedelta(days=1)),
     ]
+
+
+def visita(cuando, autor):
+    return h("visita_inicial", cuando, autor, id_visita=1, id_solicitud=1, clasificacion="TIPO_1A", observaciones="x",
+             habitantes=3, prioridad_social=False, fotos=[], departamento="Capital", localidad="Santiago del Estero",
+             latitud=-27.8, longitud=-64.26)
 
 
 def obra(*hechos_de_etapas):
@@ -110,15 +132,82 @@ def test_fotos_solo_en_curso_u_observada():
         proyectar(obra(foto(lunes, id_etapa=2)), FIN)
 
 
-def test_una_etapa_prorrogada_queda_trabada_por_el_error_de_java():
+def test_una_etapa_prorrogada_se_envia_y_acepta_fotos():
     martes = datetime(2026, 10, 20, 17, 0)
     hechos = obra(h("prorrogar_etapa", martes, 5, id_etapa_obra=1, fecha_limite=date(2026, 10, 23), motivo="lluvias"),
+                  foto(martes + timedelta(days=1)),
                   h("enviar_etapa", martes + timedelta(days=2), 11, id_etapa_obra=1, observacion_organizacion=None))
-    with pytest.raises(ReglaDeJava, match="PRORROGADA"):
-        proyectar(hechos, FIN)
-    e1 = etapas(proyectar(hechos, FIN, error_prorroga_java=False))[0]
+    filas = proyectar(hechos, FIN)
+    e1 = etapas(filas)[0]
     assert (e1["estado"], e1["fecha_limite"], e1["fecha_limite_original"], e1["motivo_prorroga"]) == (
         "EN_REVISION", date(2026, 10, 23), date(2026, 10, 20), "lluvias")
+    assert len(filas["fotos_etapa"]) == 1
+    with pytest.raises(ReglaDeJava, match="PRORROGADA"):       # el Java anterior al 31/10/2026
+        proyectar(hechos, FIN, error_prorroga_java=True)
+
+
+def test_se_prorroga_una_etapa_en_revision():
+    lunes = datetime(2026, 10, 19, 9, 0)
+    e1 = etapas(proyectar(obra(
+        h("enviar_etapa", lunes, 11, id_etapa_obra=1, observacion_organizacion=None),
+        h("prorrogar_etapa", lunes + timedelta(hours=2), 5, id_etapa_obra=1, fecha_limite=date(2026, 10, 23), motivo="x"),
+    ), FIN))[0]
+    assert (e1["estado"], e1["fecha_limite"]) == ("PRORROGADA", date(2026, 10, 23))
+
+
+def test_rechazar_una_etapa_la_deja_sin_salida():
+    lunes = datetime(2026, 10, 19, 9, 0)
+    rechazo = [h("enviar_etapa", lunes, 11, id_etapa_obra=1, observacion_organizacion=None),
+               h("rechazar_etapa", lunes + timedelta(hours=2, seconds=40), 5, id_etapa_obra=1,
+                 motivo="no respeta los planos")]
+    e1 = etapas(proyectar(obra(*rechazo), FIN))[0]
+    assert (e1["estado"], e1["observacion_tecnico"], e1["fecha_revision"], e1["id_revisor"]) == (
+        "RECHAZADA", "no respeta los planos", datetime(2026, 10, 19, 11, 0), 5)
+    for despues in (h("enviar_etapa", lunes + timedelta(days=1), 11, id_etapa_obra=1, observacion_organizacion=None),
+                    h("prorrogar_etapa", lunes + timedelta(days=1), 5, id_etapa_obra=1, fecha_limite=date(2026, 10, 30),
+                      motivo="x")):
+        with pytest.raises(ReglaDeJava, match="RECHAZADA"):
+            proyectar(obra(*rechazo, despues), FIN)
+
+
+def test_las_notificaciones_como_en_java():
+    lunes = datetime(2026, 10, 19, 9, 0, 30)
+    filas = proyectar(obra(
+        h("enviar_etapa", lunes, 11, id_etapa_obra=1, observacion_organizacion=None),
+        h("aprobar_etapa", lunes + timedelta(hours=1), 5, id_etapa_obra=1),
+    ), FIN, desfase_notificaciones_horas=3)
+    notificaciones = [(n["id_notificacion"], n["id_usuario"], n["tipo"], n["id_referencia"], n["fecha"], n["leida"])
+                      for n in filas["notificaciones"]]
+    assert notificaciones == [
+        (1, 11, "ETAPA_HABILITADA", 1, VIERNES + timedelta(hours=3), False),
+        (2, 12, "ETAPA_HABILITADA", 1, VIERNES + timedelta(hours=3), False),
+        (3, 5, "ETAPA_ENVIADA", 1, lunes + timedelta(hours=3), False),
+        (4, 11, "ETAPA_APROBADA", 1, lunes + timedelta(hours=4), False),
+        (5, 12, "ETAPA_APROBADA", 1, lunes + timedelta(hours=4), False),
+    ]
+
+
+def test_el_arquitecto_asigna_un_tecnico_antes_de_la_visita():
+    filas = proyectar(solicitud_aprobada(), FIN)
+    assert filas["solicitudes"][0]["id_tecnico_asignado"] == 5
+    assert {(u["id_usuario"], u["nombre"]) for u in filas["usuarios"]} >= {(5, "Tec"), (7, "Arq")}
+    reasignar = h("asignar_tecnico", BASE + timedelta(days=2, hours=13), 7, id_solicitud=1, id_tecnico=6)
+    with pytest.raises(ReglaDeJava, match="visita"):
+        proyectar(solicitud_aprobada() + [visita(BASE + timedelta(days=2, hours=12), 5), reasignar], FIN)
+
+
+@pytest.mark.parametrize("autor, tecnico, problema", [(5, 6, "ARQUITECTO"), (7, 7, "TECNICO")])
+def test_quien_asigna_y_a_quien(autor, tecnico, problema):
+    hechos = [x for x in solicitud_aprobada() if x.accion != "asignar_tecnico"]
+    with pytest.raises(ReglaDeJava, match=problema):
+        proyectar(hechos + [h("asignar_tecnico", BASE + timedelta(days=2, hours=1), autor, id_solicitud=1,
+                              id_tecnico=tecnico)], FIN)
+
+
+def test_la_visita_inicial_la_hace_el_tecnico_asignado():
+    assert proyectar(solicitud_aprobada() + [visita(BASE + timedelta(days=2, hours=12), 5)], FIN)["visitas_iniciales"]
+    with pytest.raises(ReglaDeJava, match="técnico asignado"):
+        proyectar(solicitud_aprobada() + [visita(BASE + timedelta(days=2, hours=12), 6)], FIN)
 
 
 @pytest.mark.parametrize("nueva, problema", [(date(2026, 10, 24), "hábil"), (date(2026, 10, 20), "posterior")])
@@ -138,8 +227,7 @@ def test_solo_el_tecnico_asignado_inicia_la_obra():
     # EtapaObraService.validarTecnicoAsignado: sin técnico asignado, o con otro, Java responde 403.
     with pytest.raises(ReglaDeJava, match="técnico asignado"):
         proyectar(solicitud_aprobada() + [h("iniciar_obra", VIERNES, 6, id_solicitud=1, etapas=[1, 2, 3, 4, 5, 6])], FIN)
-    sin_tecnico = [x for x in solicitud_aprobada() if x.accion != "aprobar_solicitud"] + [
-        h("aprobar_solicitud", VIERNES - timedelta(days=27), 9, id_solicitud=1, id_vivienda=1, id_tecnico_asignado=None),
+    sin_tecnico = [x for x in solicitud_aprobada() if x.accion != "asignar_tecnico"] + [
         h("iniciar_obra", VIERNES, 5, id_solicitud=1, etapas=[1, 2, 3, 4, 5, 6])]
     with pytest.raises(ReglaDeJava, match="técnico asignado"):
         proyectar(sin_tecnico, FIN)

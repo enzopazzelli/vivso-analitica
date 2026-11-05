@@ -1,5 +1,5 @@
-"""La verdad del simulador, segunda parte: solicitudes de vivienda con su familia (solo conteos), sus documentos, la
-visita inicial y la vivienda ([E11] a [E15], [E19], [E20], [E22]).
+"""La verdad del simulador, segunda parte: solicitudes de vivienda con su familia (solo conteos), sus documentos, el
+técnico asignado, la visita inicial y la vivienda ([E11] a [E15], [E19], [E20], [E22]).
 
 Primero se arma el plan de fechas de cada solicitud —hacia atrás desde el inicio de obra en las obras, hacia adelante en
 las que no llegan a obra—; después se ordenan por registro (para numerar los expedientes) y se emiten los hechos. Todo
@@ -170,6 +170,12 @@ class _Generador:
         if plan.expediente:
             self.hecho("asignar_expediente", plan.expediente, self.elegir(self.orgs.operadores), id_solicitud=id_solicitud,
                        num_exp=num_exp)
+        if not p.asignar_tecnico:
+            return                      # [E19] sin técnico asignado no hay visita ni obra: queda Pendiente
+        asignacion = self.asignacion_tecnico(plan)
+        if asignacion:
+            self.hecho("asignar_tecnico", asignacion, self.orgs.arquitectos[0], id_solicitud=id_solicitud,
+                       id_tecnico=tecnico)
         ubicacion = self.ubicacion(plan.org)
         if plan.visita:
             self.visita(plan, id_solicitud, tecnico, familiares, ubicacion)
@@ -179,6 +185,22 @@ class _Generador:
                        motivo=str(self.elegir(MOTIVOS_RECHAZO)))
         if plan.aprobacion:
             self.aprobar(plan, id_solicitud, tecnico, ubicacion)
+
+    def asignacion_tecnico(self, plan: _Plan) -> datetime | None:
+        """[E19] El arquitecto asigna el técnico unos días después del registro y siempre antes de la visita inicial
+        (después ya no se puede reasignar). De las solicitudes sin visita, solo algunas ya tienen técnico."""
+        p = self.p
+        registro = plan.registro.date()
+        desde = registro + timedelta(days=p.asignacion_tecnico_dias[0])
+        hasta = registro + timedelta(days=p.asignacion_tecnico_dias[1])
+        if plan.visita is None:
+            if self.rng.random() >= p.prob_tecnico_sin_visita:
+                return None
+        else:
+            hasta = min(hasta, plan.visita.date() - timedelta(days=1))
+            if hasta < desde:
+                return plan.visita - timedelta(hours=1)
+        return self.momento(self.dia_entre(desde, hasta))
 
     def ubicacion(self, org: OrganizacionSimulada) -> dict:
         if self.rng.random() < self.p.prob_departamento_de_la_organizacion:
@@ -245,7 +267,7 @@ class _Generador:
         p = self.p
         id_vivienda = Ref("viviendas", plan.clave)
         self.hecho("aprobar_solicitud", plan.aprobacion, self.elegir(self.orgs.operadores), id_solicitud=id_solicitud,
-                   id_vivienda=id_vivienda, id_tecnico_asignado=tecnico if p.asignar_tecnico else None)
+                   id_vivienda=id_vivienda)
         if self.rng.random() < p.prob_vivienda_completada:
             dia = plan.aprobacion.date()
             completada = self.momento(self.dia_entre(dia + timedelta(days=p.completar_vivienda_dias[0]),
