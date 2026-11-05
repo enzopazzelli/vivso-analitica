@@ -1,9 +1,11 @@
+from collections import Counter
 from dataclasses import replace
 from datetime import date, datetime, timedelta
 
 import pandas as pd
 import pytest
 
+from analitica.catalogo import TIPOS_NOTIFICACION
 from analitica.esquema import TABLAS
 from analitica.origenes.base import OrigenNoDisponible, crear_origen, verificar_lectura, verificar_relaciones
 from analitica.origenes.simulado import OrigenSimulado
@@ -75,6 +77,24 @@ def test_la_lectura_coincide_con_la_verdad(origen, lectura):
     hechos = [x for x in origen.verdad() if x.momento_registrado <= lectura.leido_en]
     fotos = sum(x.accion == "subir_foto" for x in hechos) - sum(x.accion == "borrar_foto" for x in hechos)
     assert fotos == len(lectura.tabla("fotos_etapa"))
+
+
+def test_las_notificaciones_del_mundo_simulado(origen, lectura):
+    hechos = [x for x in origen.verdad() if x.momento_registrado <= lectura.leido_en]
+    cuenta = Counter(x.accion for x in hechos)
+    a_la_organizacion = sum(cuenta[a] for a in ("iniciar_obra", "aprobar_etapa", "observar_etapa",
+                                               "prorrogar_etapa", "rechazar_etapa"))
+    notificaciones = lectura.tabla("notificaciones")
+    assert len(notificaciones) == 2 * a_la_organizacion + cuenta["enviar_etapa"] > 0
+    assert set(notificaciones["tipo"]) <= set(TIPOS_NOTIFICACION)
+    assert not notificaciones["leida"].any()
+
+
+def test_el_desfase_de_las_notificaciones():
+    corrido = OrigenSimulado(8, hasta=REF, parametros=replace(PARAMETROS, desfase_notificaciones_horas=3)).leer()
+    normal = OrigenSimulado(8, hasta=REF).leer()
+    diferencia = corrido.tabla("notificaciones")["fecha"] - normal.tabla("notificaciones")["fecha"]
+    assert len(diferencia) > 0 and (diferencia == pd.Timedelta(hours=3)).all()
 
 
 def test_avance_real(origen, lectura):
