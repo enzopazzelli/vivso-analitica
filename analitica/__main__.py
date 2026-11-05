@@ -21,10 +21,11 @@ _FINALIZADA = "Obra finalizada"
 
 
 def _obras_por_etapa_actual(etapas: pd.DataFrame) -> list[tuple[str, int]]:
-    """Como lo muestra la web de Desarrollo: la etapa activa de cada obra con su estado, u «Obra finalizada»."""
+    """Como lo muestra la web de Desarrollo: la etapa activa de cada obra con su estado (o la rechazada, que deja la obra
+    detenida), u «Obra finalizada»."""
     cuentas: dict[tuple, int] = {}
     for _, de_la_obra in etapas.groupby("id_solicitud"):
-        activas = de_la_obra[de_la_obra["estado"].isin(ESTADOS_ACTIVOS)]
+        activas = de_la_obra[de_la_obra["estado"].isin(ESTADOS_ACTIVOS + ("RECHAZADA",))]
         if len(activas):
             fila = activas.iloc[0]
             clave = (int(fila["numero"]), ESTADOS_ETAPA.index(fila["estado"]), fila["etapa"], fila["estado"])
@@ -46,6 +47,7 @@ def _simular(args: argparse.Namespace) -> int:
     print("Filas por tabla:")
     for tabla, filas in lectura.filas().items():
         print(f"  {tabla:<26}{filas:>6}")
+    print(f"Notificaciones: {len(lectura.tabla('notificaciones'))} (una por destinatario; son la historia de las etapas)")
     print("Obras por etapa actual:")
     obras = _obras_por_etapa_actual(lectura.tabla("etapas"))
     for texto, n in obras:
@@ -84,7 +86,7 @@ def _argumentos() -> argparse.ArgumentParser:
     cmd_simular.add_argument("--semilla", type=int, default=8)
     cmd_simular.add_argument("--hasta", type=date.fromisoformat, default=None, metavar="AAAA-MM-DD",
                              help="fecha de corte (por defecto, ahora)")
-    cmd_simular.add_argument("--csv", default=None, metavar="CARPETA", help="guarda las 13 tablas como CSV")
+    cmd_simular.add_argument("--csv", default=None, metavar="CARPETA", help="guarda las 14 tablas como CSV")
     cmd_simular.set_defaults(funcion=_simular)
     cmd_feriados = comandos.add_parser("feriados", help="baja los feriados de ArgentinaDatos y los guarda")
     cmd_feriados.add_argument("anios", nargs="+", type=int, metavar="ANIO")

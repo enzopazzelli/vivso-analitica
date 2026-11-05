@@ -1,7 +1,10 @@
 import subprocess
 import sys
+from dataclasses import replace
 
 from analitica.__main__ import main
+from analitica.origenes.simulado import OrigenSimulado
+from analitica.parametros_simulacion import PARAMETROS
 
 
 def test_comando_simular(capsys, tmp_path):
@@ -11,6 +14,16 @@ def test_comando_simular(capsys, tmp_path):
     assert "Filas por tabla:" in salida and "Obras por etapa actual:" in salida
     assert "Relaciones: sin filas huérfanas" in salida and "Aviso" not in salida
     assert len(list((tmp_path / "csv").glob("*.csv"))) == 14
+
+
+def test_simular_muestra_las_obras_rechazadas(capsys, monkeypatch):
+    monkeypatch.setattr("analitica.__main__.OrigenSimulado",
+                        lambda semilla, hasta: OrigenSimulado(semilla, hasta=hasta,
+                                                              parametros=replace(PARAMETROS, prob_rechazo_etapa=1.0)))
+    assert main(["simular", "--hasta", "2026-10-15"]) == 0
+    salida = capsys.readouterr().out
+    assert "Etapa 1: Replanteo y cimientos (RECHAZADA)" in salida
+    assert "Notificaciones:" in salida
 
 
 def test_con_el_simulador_apagado_avisa(capsys, monkeypatch):
