@@ -4,7 +4,7 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parents[1]
 DOCUMENTOS = [RAIZ / "README.md", *sorted((RAIZ / "docs").glob("*.md"))]
 ENLACE = re.compile(r"\]\(([^)#\s]+)(?:#[^)]*)?\)")
-DIAGRAMAS_MINIMOS = {"README.md": 2, "docs/sistema-de-desarrollo.md": 8, "docs/pedido-a-desarrollo.md": 1,
+DIAGRAMAS_MINIMOS = {"README.md": 2, "docs/sistema-de-desarrollo.md": 9, "docs/pedido-a-desarrollo.md": 1,
                      "docs/simulacion.md": 6}
 
 

@@ -45,7 +45,7 @@ El primer comando crea la carpeta `.venv` con un Python propio del proyecto; el 
 Lo esperado es una fila de puntos y al final:
 
 ```
-143 passed
+174 passed
 ```
 
 Si aparece una `F` o la palabra `failed`, algo está mal: la salida dice qué prueba falló y por qué. Las pruebas no usan
@@ -67,31 +67,35 @@ Filas por tabla:
   familias                     183
   viviendas                    134
   etapas                       720
-  fotos_etapa                 1108
+  fotos_etapa                 2709
   visitas_iniciales            165
-  fotos_visita                 582
+  fotos_visita                 587
   visitas_obra                   0
   organizaciones                12
   solicitudes_organizacion      16
   integrantes                   42
   usuarios                      34
-  documentos                  1261
+  documentos                  1246
+  notificaciones              2766
+Notificaciones: 2766 (una por destinatario; son la historia de las etapas)
 Obras por etapa actual:
-  Etapa 1: Replanteo y cimientos (EN_CURSO)               3
-  Etapa 1: Replanteo y cimientos (EN_REVISION)            3
-  Etapa 1: Replanteo y cimientos (PRORROGADA)            34
+  Etapa 1: Replanteo y cimientos (EN_CURSO)               2
+  Etapa 1: Replanteo y cimientos (EN_REVISION)            4
+  Etapa 2: Mampostería de cimientos (EN_CURSO)            3
   ...
-  Etapa 6: Pintura y artefactos (PRORROGADA)              3
-  Obra finalizada                                         6
+  Etapa 6: Pintura y artefactos (OBSERVADA)               2
+  Obra finalizada                                        74
 Relaciones: sin filas huérfanas
 ```
 
 Cómo leerla:
 
-- **Filas por tabla:** cuántas filas tiene cada una de las 13 tablas que el servicio lee del sistema de Desarrollo.
-- **Obras por etapa actual:** cada obra en la etapa en la que está y su estado, como lo muestra la web de Desarrollo.
-  Muchas aparecen `PRORROGADA`: en el sistema real una etapa prorrogada ya no se puede enviar y queda trabada (está
-  explicado en [simulacion.md](simulacion.md)).
+- **Filas por tabla:** cuántas filas tiene cada una de las 14 tablas que el servicio lee del sistema de Desarrollo.
+- **Notificaciones:** los avisos que el sistema de Desarrollo guarda en cada paso de una etapa (uno por cada persona que
+  lo recibe). Con ellos el servicio reconstruye la historia de cada obra.
+- **Obras por etapa actual:** cada obra en la etapa en la que está y su estado, como lo muestra la web de Desarrollo, u
+  «Obra finalizada» si ya aprobó las 6. Algunas aparecen `PRORROGADA`: les dieron más tiempo y se pueden enviar igual
+  (hasta el 31/10/2026 quedaban trabadas; está explicado en [simulacion.md](simulacion.md)).
 - **Relaciones:** que no haya filas que apunten a algo que no existe (por ejemplo, una etapa sin su solicitud).
 
 Para probar otras cosas:
@@ -109,7 +113,7 @@ Para probar otras cosas:
 .venv\Scripts\python.exe -m analitica simular --hasta 2026-10-15 --csv salidas\simulado
 ```
 
-Al final dice `CSV: 13 archivos en salidas\simulado`. Esa carpeta tiene una planilla por tabla (`etapas.csv`,
+Al final dice `CSV: 14 archivos en salidas\simulado`. Esa carpeta tiene una planilla por tabla (`etapas.csv`,
 `solicitudes.csv`, etc.) que se abre con doble clic en Excel. Los nombres, DNI y CUIT son inventados.
 
 ## Extras

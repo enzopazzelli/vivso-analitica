@@ -1,7 +1,7 @@
 # Pedido al equipo de Desarrollo
 
-**De:** Ciencia de Datos (Grupo 8) · **Para:** equipo de Desarrollo · **Fecha:** 21/10/2026
-**Sobre:** el repositorio `PaganiB/vivso`, revisado el 21/10/2026 (commit `bb957fd`)
+**De:** Ciencia de Datos (Grupo 8) · **Para:** equipo de Desarrollo · **Fecha:** 04/11/2026
+**Sobre:** el repositorio `PaganiB/vivso`, rama `develop`, revisada el 04/11/2026 (commit `5b36d7d`, del 03/11/2026)
 
 ## 1. Qué hacemos
 
@@ -29,42 +29,61 @@ flowchart LR
 
 ## 2. Lo que ya nos dieron
 
-Gracias por la base de pruebas en Aiven, el usuario de solo lectura `lector`, el `SHOW CREATE TABLE` de las 13 tablas y
-las respuestas del 19/10 (visitas de obra, tabla `visita`, etapa 6, técnico asignado, feriados y hora de captura). Con
-eso construimos un origen simulado que reproduce sus tablas y sus reglas, para avanzar con el servicio sin depender de
-ustedes.
+Gracias por la base de pruebas en Aiven, el usuario de solo lectura `lector`, el `SHOW CREATE TABLE` de las tablas y
+las respuestas del 19/10. Y por lo que resolvieron desde el 21/10:
+
+- **La vista del arquitecto para asignar el técnico** (27/10): era lo más urgente, porque sin técnico asignado no se
+  podía iniciar ninguna obra.
+- **El envío de una etapa prorrogada** (31/10): ya no queda trabada.
+- **Lo necesario para levantar el sistema:** el `pom.xml`, un solo `SecurityConfig`, la carpeta de archivos por variable
+  de entorno y un solo mapeador.
+- **Las notificaciones** (03/11): guardan con hora exacta cada paso de las etapas y no se borran. Son casi la tabla de
+  eventos que les habíamos sugerido: con ellas recuperamos la historia completa de cada obra.
+
+Con todo eso actualizamos nuestro origen simulado, que reproduce sus tablas y sus reglas, para seguir avanzando sin
+depender de ustedes.
 
 ## 3. Lo que falta para conectarnos
 
 1. La **contraseña** del usuario `lector`.
 2. El **certificado de la autoridad (CA)** de Aiven, para la conexión cifrada.
+3. Que `lector` pueda leer la tabla nueva `notificacion` (solo `id_notificacion`, `id_usuario`, `tipo`,
+   `id_referencia`, `fecha` y `leida`) y las columnas nuevas `nombre` y `apellido` de `usuario`.
 
 Por un canal privado, por favor: nunca por el repositorio ni por un grupo. Nosotros los guardamos solo en el `.env` de
 cada máquina, que no se sube.
 
 ## 4. Preguntas
 
-1. **Zona horaria.** Las etapas y las fotos usan `LocalDateTime.now(ZONA)` con la hora de Buenos Aires, pero los
-   documentos (`fechaSubida`, `fechaRevision`), las solicitudes (`fechaSolicitud`, `fechaActivacion`) y las altas usan
-   `LocalDateTime.now()` y `LocalDate.now()` sin zona, y la URL de conexión declara `serverTimezone=UTC`. ¿En qué zona
-   corre la JVM? Si corre en UTC, esas fechas quedan tres horas adelantadas y, después de las 21, con la fecha del día
-   siguiente.
-2. **Feriados provinciales.** Nos dijeron que, ante un feriado provincial, el técnico reasignaría la fecha límite sin
+1. **Rama vigente.** El 04/11 la rama `main` quedó casi vacía. ¿Seguimos leyendo `develop` como la versión de
+   referencia?
+2. **Etapa rechazada.** `rechazarEtapa` deja la etapa `RECHAZADA` y ninguna regla la saca de ahí. ¿Qué pasa después de
+   un rechazo (se reinicia la etapa, se cierra la obra)? Además, la ruta `POST /etapa/{id}/rechazar` no figura en
+   `SecurityConfig` (queda solo para `ADMIN`), pero el servicio exige que quien rechaza sea el técnico asignado: hoy
+   nadie puede rechazar. ¿Es a propósito?
+3. **Zona horaria.** Las etapas y las fotos usan `LocalDateTime.now(ZONA)` con la hora de Buenos Aires, pero los
+   documentos, las solicitudes, las altas y ahora las **notificaciones** usan `LocalDateTime.now()` y `LocalDate.now()`
+   sin zona, y la URL de conexión declara `serverTimezone=UTC`. ¿En qué zona corre la JVM? Si corre en UTC, esas fechas
+   quedan tres horas adelantadas y, después de las 21, con la fecha del día siguiente.
+4. **Municipios y comisiones municipales.** `TipoOrganizacion` no tiene un tipo para ellos. ¿Cómo se registra una
+   municipalidad? (Para nosotros son el grupo OG; hoy lo deducimos del nombre si eligen «Otra».)
+5. **Feriados provinciales.** Nos dijeron que, ante un feriado provincial, el técnico reasignaría la fecha límite sin
    que cuente como prórroga. ¿Cómo va a quedar marcado? Hoy, para nosotros, cualquier cambio de `fecha_limite` es una
    prórroga.
-3. **Tope de prórroga.** `TOPE_PRORROGA_DIAS = 14`, ¿son días hábiles? Así lo estamos contando.
-4. **`cpe`.** ¿Qué guarda la columna `cpe` de las organizaciones?
-5. **Tabla de feriados.** Cuando agreguen la tabla `feriado`, ¿con qué columnas? La leeríamos para contar igual que
+6. **Tope de prórroga.** `TOPE_PRORROGA_DIAS = 14`, ¿son días hábiles? Así lo estamos contando.
+7. **`cpe`.** ¿Qué guarda la columna `cpe` de las organizaciones?
+8. **Tabla de feriados.** Cuando agreguen la tabla `feriado`, ¿con qué columnas? La leeríamos para contar igual que
    ustedes.
+9. **`notificacion.leida`.** ¿Queda como `bit(1)`, como `activo`?
 
 ## 5. Sugerencias para medir mejor
 
-1. **Una tabla de eventos de etapa** en la que solo se agreguen filas, por ejemplo con `id_etapa_obra`, `tipo`, `fecha`,
-   `id_usuario`, `estado_anterior`, `estado_nuevo`, `fecha_limite_anterior` y `fecha_limite_nueva`. Hoy se pierde
-   cuántas veces se observó o se prorrogó una etapa; la reconstruimos leyendo cada cierto tiempo, con menos precisión.
+1. **Sumar a cada notificación la etapa (`id_etapa_obra`) y quién hizo la acción.** Hoy la notificación dice la
+   solicitud, y la etapa la deducimos contando las aprobaciones anteriores.
 2. **La hora de captura del celular** en los envíos y las fotos de etapa, como ya hace la visita inicial. Con el modo
    sin conexión, una demora de señal hoy se ve como una demora de obra.
-3. **Quién y cuándo prorrogó** una etapa.
+3. **Exigir al menos una foto para enviar una etapa** (el código ya lo tiene anotado como pendiente): el técnico aprueba
+   a distancia y las fotos son la única evidencia.
 4. **Las fechas de semiaprobación y de rechazo** de una solicitud.
 5. **Borrar las fotos con una marca** en vez de borrar la fila, para saber que existieron.
 
@@ -72,21 +91,14 @@ cada máquina, que no se sube.
 
 | Dónde | Qué pasa |
 | :--- | :--- |
-| `Solicitud.tecnicoAsignado` y `EtapaObraService.validarTecnicoAsignado` | **Lo más urgente.** Solo el técnico asignado puede iniciar la obra y aprobar, observar o prorrogar sus etapas (sin excepción para `ADMIN`), pero ningún flujo completa `tecnicoAsignado`: hoy no se puede iniciar ninguna obra. Además, la app del técnico filtra por ese campo y queda vacía. Hace falta la vista del arquitecto para asignarlo |
-| `EtapaObraService.enviarEtapa` | Solo acepta etapas `EN_CURSO` u `OBSERVADA`: una etapa `PRORROGADA` ya no puede enviarse y queda trabada |
+| `EtapaObraService.rechazarEtapa` | La etapa `RECHAZADA` no tiene salida y hoy nadie puede rechazar (pregunta 2) |
 | `EtapaObraService.aprobarEtapa` | Aprobar la etapa 6 no cierra la solicitud |
 | `Vivienda.fechaInic` y `Vivienda.fechaFin` | Ningún flujo los completa |
-| `visitaObra.afo` y `vivienda.avance_obra` | Restos del AFO anterior que siguen en la base |
+| `vivienda.avance_obra` y la tabla `visitaObra` | Restos del AFO anterior que siguen en la base, aunque el código ya no los usa |
+| `NotificacionService` | Las notificaciones de la organización solo se guardan si tiene integrantes activos con usuario |
 | `solicitud_organizacion` | `cuit` es único: una organización rechazada no puede volver a pedir el alta. Y la vigencia es obligatoria en `organizacion` pero no en la solicitud: aprobar un alta sin esa fecha fallaría |
 
-## 7. Para levantar el sistema
-
-- Falta el `pom.xml` en el repositorio.
-- Hay dos clases `SecurityConfig` con el mismo nombre: Spring les asigna el mismo nombre de bean y falla al arrancar.
-- `vivso.upload.dir` se usa sin valor por defecto y no está definida.
-- `Mapper/Mapper.java`, que nadie usa, llama a métodos que `Vivienda` ya no tiene y no compila.
-
-## 8. Lo que ofrecemos
+## 7. Lo que ofrecemos
 
 - **Una API JSON de solo lectura** (`/v1`), con clave, para mostrar los indicadores en su web o en la app, idealmente
   consultándola desde su backend: estado del servicio, obras con su semáforo y su avance, la ficha y la línea de tiempo

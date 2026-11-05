@@ -22,8 +22,10 @@ flowchart LR
 ## Estado
 
 **Hecho:** el dominio copiado del sistema de Desarrollo (etapas, estados, enums, días hábiles como Java y feriados de
-ArgentinaDatos), el esquema de las 13 tablas con su contrato, el origen vacío, el origen simulado con las reglas de
-Java, y los documentos sobre el sistema de Desarrollo y lo que le pedimos.
+ArgentinaDatos), el esquema de las 14 tablas con su contrato, el origen vacío, el origen simulado con las reglas de
+Java (al día con su versión del 03/11/2026: técnico asignado por el arquitecto, etapas prorrogadas que se pueden enviar,
+rechazo de etapas y notificaciones), la historia de las etapas reconstruida desde las notificaciones, y los documentos
+sobre el sistema de Desarrollo y lo que le pedimos.
 
 **Falta:** la sincronización que guarda la historia, la conexión a la base real (esperamos la contraseña y el
 certificado del usuario de solo lectura), el AFO por etapas y los indicadores, la API, el tablero, el despliegue y los
@@ -41,7 +43,7 @@ py -3.13 -m venv .venv
 ## Uso
 
 ```powershell
-# El mundo simulado a una fecha (y, si se quiere, las 13 tablas en CSV)
+# El mundo simulado a una fecha (y, si se quiere, las 14 tablas en CSV)
 .venv\Scripts\python.exe -m analitica simular --hasta 2026-10-15 --csv salidas\simulado
 
 # Bajar los feriados de ArgentinaDatos para trabajar sin conexión
@@ -66,8 +68,9 @@ flowchart LR
         catalogo["catalogo.py<br/>etapas, estados, enums, OG/ONG"]
         calendario["calendario.py<br/>días hábiles"]
         feriados["feriados.py<br/>ArgentinaDatos"]
-        esquema["esquema.py<br/>las 13 tablas"]
+        esquema["esquema.py<br/>las 14 tablas"]
     end
+    historia["historia.py<br/>historia de etapas<br/>desde las notificaciones"]
     subgraph origenes["origenes/"]
         base["base.py<br/>Lectura, contrato, crear_origen"]
         vacio["vacio.py"]
@@ -85,6 +88,8 @@ flowchart LR
     parametros --> simulado
     simulado --> cli
     feriados --> cli
+    base --> historia
+    esquema --> historia
 ```
 
 ```
@@ -95,11 +100,12 @@ vivso-analitica/
 │   ├── catalogo.py              etapas, estados y enums de Java; grupos OG/ONG
 │   ├── calendario.py            días hábiles como CalendarioService.java
 │   ├── feriados.py              feriados de ArgentinaDatos, con archivo local
-│   ├── esquema.py               las 13 tablas: columnas, orden y tipos
+│   ├── esquema.py               las 14 tablas: columnas, orden, tipos y claves
+│   ├── historia.py              eventos de las etapas desde las notificaciones y lo que fecha una lectura
 │   ├── parametros_simulacion.py supuestos del simulador
 │   └── origenes/
 │       ├── base.py              Lectura, contrato, relaciones y crear_origen
-│       ├── vacio.py             las 13 tablas sin filas
+│       ├── vacio.py             las 14 tablas sin filas
 │       ├── simulado.py          el origen simulado
 │       ├── simulado_proyeccion.py   las reglas de Java
 │       ├── simulado_organizaciones.py, simulado_solicitudes.py, simulado_obras.py   la verdad
