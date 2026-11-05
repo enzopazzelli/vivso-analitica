@@ -1,4 +1,4 @@
-"""Las 13 tablas que entrega todo origen: mismas columnas, mismo orden y mismos tipos.
+"""Las 14 tablas que entrega todo origen: mismas columnas, mismo orden y mismos tipos.
 
 Las columnas salen de las tablas de Java (sección 5 de docs/sistema-de-desarrollo.md), pasadas a minúsculas con guion
 bajo. Tipos: int, float, str, bool, date (fecha sin hora) y datetime (fecha y hora de Buenos Aires, sin zona). Los
@@ -6,6 +6,7 @@ vacíos se aceptan en cualquier columna. Nunca hay columnas de tokens ni contras
 """
 import math
 import unicodedata
+from collections.abc import Mapping
 from datetime import date, datetime
 
 import numpy as np
@@ -75,14 +76,35 @@ COLUMNAS: dict[str, tuple[tuple[str, str], ...]] = {
     ),
     "usuarios": (
         ("id_usuario", "int"), ("username", "str"), ("rol", "str"), ("email", "str"), ("activo", "bool"),
+        ("nombre", "str"), ("apellido", "str"),
     ),
     "documentos": (
         ("id_documento", "int"), ("nombre_original", "str"), ("url", "str"), ("tipo", "str"), ("estado", "str"),
         ("motivo_observacion", "str"), ("fecha_subida", "datetime"), ("fecha_revision", "datetime"),
         ("id_familia", "int"), ("cuit_org", "str"), ("id_solicitud_org", "int"), ("id_revisor", "int"),
     ),
+    # Una fila por destinatario; id_referencia es la solicitud. Título y mensaje no se leen (son el tipo y el expediente).
+    "notificaciones": (
+        ("id_notificacion", "int"), ("id_usuario", "int"), ("tipo", "str"), ("id_referencia", "int"),
+        ("fecha", "datetime"), ("leida", "bool"),
+    ),
 }
 TABLAS = tuple(COLUMNAS)
+
+# La clave de cada tabla: identifica una fila entre dos lecturas (la usan las versiones del sincronizador).
+CLAVES: dict[str, tuple[str, ...]] = {
+    "solicitudes": ("id_solicitud",), "familias": ("id_familia",), "viviendas": ("id_vivienda",),
+    "etapas": ("id_etapa_obra",), "fotos_etapa": ("id_foto",), "visitas_iniciales": ("id_visita",),
+    "fotos_visita": ("id_visita", "url_foto"), "visitas_obra": ("id_visita_obra",), "organizaciones": ("cuit",),
+    "solicitudes_organizacion": ("id_solicitud_org",), "integrantes": ("id_integrante",),
+    "usuarios": ("id_usuario",), "documentos": ("id_documento",), "notificaciones": ("id_notificacion",),
+}
+
+
+def clave_de(tabla: str, fila: Mapping) -> str:
+    """Los valores de la clave de la fila unidos con «|» (un entero de numpy se escribe sin decimales)."""
+    return "|".join(str(fila[columna].item() if isinstance(fila[columna], np.generic) else fila[columna])
+                    for columna in CLAVES[tabla])
 
 # El tipo de pandas de cada tipo del esquema. Los nulables (Int64, Float64, string, boolean) mantienen el tipo aunque
 # haya vacíos; las fechas sin hora quedan como objetos `date`.

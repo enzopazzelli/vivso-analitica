@@ -1,4 +1,4 @@
-"""El origen vacío: las 13 tablas sin filas. Es la forma de apagar el simulador sin conectar nada (ANALITICA_ORIGEN=vacio)."""
+"""El origen vacío: las 14 tablas sin filas. Es la forma de apagar el simulador sin conectar nada (ANALITICA_ORIGEN=vacio)."""
 from analitica.calendario import ahora_local
 from analitica.esquema import TABLAS
 from analitica.origenes.base import Lectura, tabla_vacia

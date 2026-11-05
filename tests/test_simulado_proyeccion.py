@@ -51,7 +51,7 @@ def etapas(filas):
     return sorted(filas["etapas"], key=lambda e: e["numero"])
 
 
-def test_sin_hechos_hay_trece_tablas_vacias():
+def test_sin_hechos_hay_catorce_tablas_vacias():
     filas = proyectar([], FIN)
     assert set(filas) == set(TABLAS) and all(v == [] for v in filas.values())
 

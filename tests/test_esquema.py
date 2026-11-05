@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from analitica.esquema import TABLAS, columnas_prohibidas, nombres, valor_valido
+from analitica.esquema import CLAVES, TABLAS, clave_de, columnas_prohibidas, nombres, valor_valido
 from analitica.origenes.base import Lectura, LecturaInvalida, armar_tabla, tabla_vacia, verificar_lectura, verificar_relaciones
 from analitica.origenes.vacio import OrigenVacio
 
@@ -14,12 +14,13 @@ def _lectura(origen="simulado", **reemplazos):
     return Lectura(origen=origen, leido_en=datetime(2026, 10, 19, 12, 0), tablas=tablas)
 
 
-def test_las_13_tablas_en_orden():
+def test_las_14_tablas_en_orden():
     assert TABLAS == ("solicitudes", "familias", "viviendas", "etapas", "fotos_etapa", "visitas_iniciales",
                       "fotos_visita", "visitas_obra", "organizaciones", "solicitudes_organizacion", "integrantes",
-                      "usuarios", "documentos")
+                      "usuarios", "documentos", "notificaciones")
     assert nombres("familias") == ["id_familia", "cantidad_familiares", "antiguedad_rancho"]
-    assert nombres("usuarios") == ["id_usuario", "username", "rol", "email", "activo"]
+    assert nombres("usuarios") == ["id_usuario", "username", "rol", "email", "activo", "nombre", "apellido"]
+    assert nombres("notificaciones") == ["id_notificacion", "id_usuario", "tipo", "id_referencia", "fecha", "leida"]
     assert len(nombres("etapas")) == 15 and len(nombres("solicitudes_organizacion")) == 29
     assert all(columnas_prohibidas(nombres(t)) == [] for t in TABLAS)
 
@@ -27,6 +28,26 @@ def test_las_13_tablas_en_orden():
 def test_columnas_prohibidas():
     assert columnas_prohibidas(["token_edicion", "password_hash", "Contraseña", "clave_api", "client_secret", "nombre"]) == [
         "token_edicion", "password_hash", "Contraseña", "clave_api", "client_secret"]
+
+
+def test_las_columnas_nuevas_de_usuario_que_nunca_se_leen():
+    assert columnas_prohibidas(["push_token", "debe_cambiar_password", "nombre"]) == ["push_token", "debe_cambiar_password"]
+
+
+def test_cada_tabla_tiene_su_clave():
+    assert set(CLAVES) == set(TABLAS)
+    assert all(set(CLAVES[t]) <= set(nombres(t)) for t in TABLAS)
+    assert clave_de("fotos_visita", {"id_visita": np.int64(3), "url_foto": "u/1.jpg"}) == "3|u/1.jpg"
+    assert clave_de("organizaciones", {"cuit": "30-1-1"}) == "30-1-1"
+
+
+def test_relaciones_de_las_notificaciones():
+    lectura = _lectura(notificaciones=armar_tabla("notificaciones", [
+        {"id_notificacion": 1, "id_usuario": 7, "tipo": "ETAPA_ENVIADA", "id_referencia": 3,
+         "fecha": datetime(2026, 11, 3, 10), "leida": False}]))
+    assert verificar_relaciones(lectura) == [
+        "notificaciones.id_usuario: 1 filas con un valor que no está en usuarios.id_usuario",
+        "notificaciones.id_referencia: 1 filas con un valor que no está en solicitudes.id_solicitud"]
 
 
 @pytest.mark.parametrize("valor, tipo, esperado", [

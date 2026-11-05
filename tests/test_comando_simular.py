@@ -10,7 +10,7 @@ def test_comando_simular(capsys, tmp_path):
     assert "Origen simulado · semilla 8 · corte 2026-10-15 23:59" in salida
     assert "Filas por tabla:" in salida and "Obras por etapa actual:" in salida
     assert "Relaciones: sin filas huérfanas" in salida and "Aviso" not in salida
-    assert len(list((tmp_path / "csv").glob("*.csv"))) == 13
+    assert len(list((tmp_path / "csv").glob("*.csv"))) == 14
 
 
 def test_con_el_simulador_apagado_avisa(capsys, monkeypatch):

@@ -1,4 +1,4 @@
-"""Lo que comparten todos los orígenes: la `Lectura` con las 13 tablas y la verificación de su contrato."""
+"""Lo que comparten todos los orígenes: la `Lectura` con las 14 tablas y la verificación de su contrato."""
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -144,6 +144,14 @@ RELACIONES = (
     ("integrantes", "id_usuario", "usuarios", "id_usuario"),
     ("documentos", "id_familia", "familias", "id_familia"),
     ("documentos", "id_solicitud_org", "solicitudes_organizacion", "id_solicitud_org"),
+    ("solicitudes", "id_tecnico_asignado", "usuarios", "id_usuario"),
+    ("viviendas", "id_familia", "familias", "id_familia"),
+    ("visitas_obra", "id_tecnico", "usuarios", "id_usuario"),
+    ("solicitudes_organizacion", "id_revisor", "usuarios", "id_usuario"),
+    ("documentos", "cuit_org", "organizaciones", "cuit"),
+    ("documentos", "id_revisor", "usuarios", "id_usuario"),
+    ("notificaciones", "id_usuario", "usuarios", "id_usuario"),
+    ("notificaciones", "id_referencia", "solicitudes", "id_solicitud"),
 )
 
 
