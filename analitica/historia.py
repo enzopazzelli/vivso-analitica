@@ -6,11 +6,12 @@ de qué etapa se trata (solo la solicitud), así que la etapa se deduce contando
 eventos del servicio comparten el contrato de `COLUMNAS_EVENTOS`.
 """
 from collections.abc import Iterable, Mapping
-from datetime import timedelta
+from dataclasses import dataclass
+from datetime import date, datetime, time, timedelta
 
 import pandas as pd
 
-from analitica.esquema import es_vacio
+from analitica.esquema import clave_de, es_vacio
 from analitica.origenes.base import Lectura
 
 COLUMNAS_EVENTOS = ("entidad", "clave", "id_solicitud", "numero", "tipo", "ronda", "momento", "precision", "fuente",
@@ -69,7 +70,8 @@ def _numerar(eventos: pd.DataFrame, etapas: pd.DataFrame) -> list[dict]:
         de_la_solicitud = de_la_solicitud.assign(_orden=de_la_solicitud["tipo"].map(orden)).sort_values(["fecha", "_orden"])
         obra = de_cada_obra.get(id_solicitud, etapas.iloc[0:0])
         claves = {int(e["numero"]): str(int(e["id_etapa_obra"])) for _, e in obra.iterrows()}
-        t0 = de_la_solicitud["fecha"].iloc[0]
+        # fecha_revision está truncada al minuto: una aprobación del mismo minuto que la primera notificación es esa misma.
+        t0 = de_la_solicitud["fecha"].iloc[0].floor("min")
         aprobadas = int(((obra["estado"] == "APROBADA") & (obra["fecha_revision"] < t0)).sum())
         envios: dict[int, int] = {}
         for tipo_java, _, fecha, _ in de_la_solicitud.itertuples(index=False):
@@ -125,3 +127,168 @@ def eventos_de_notificaciones(lectura: Lectura, desfase_horas: int | None = None
     eventos = eventos.assign(fecha=eventos["fecha"] - pd.Timedelta(hours=desfase_horas))
     tabla = tabla_eventos(_numerar(eventos, lectura.tabla("etapas")))
     return tabla.sort_values(["momento", "id_solicitud"], kind="stable").reset_index(drop=True)
+
+
+# --- vínculos de cada fila con su solicitud ---
+
+def _entero(valor) -> int | None:
+    return None if es_vacio(valor) else int(valor)
+
+
+def _mapa(tabla: pd.DataFrame, desde: str, hacia: str) -> dict[int, int]:
+    pares = tabla[[desde, hacia]].dropna()
+    return {int(a): int(b) for a, b in zip(pares[desde], pares[hacia])}
+
+
+@dataclass(frozen=True)
+class Vinculos:
+    """A qué solicitud pertenece cada fila: directo, o a través de su etapa, su vivienda, su familia o su visita."""
+    etapa_a_solicitud: dict[int, int]
+    vivienda_a_solicitud: dict[int, int]
+    familia_a_solicitud: dict[int, int]
+    visita_a_solicitud: dict[int, int]
+
+    def id_solicitud(self, entidad: str, fila: Mapping) -> int | None:
+        if entidad in ("solicitudes", "viviendas", "etapas", "visitas_iniciales"):
+            return _entero(fila.get("id_solicitud"))
+        if entidad == "fotos_etapa":
+            return self.etapa_a_solicitud.get(_entero(fila.get("id_etapa_obra")))
+        if entidad == "fotos_visita":
+            return self.visita_a_solicitud.get(_entero(fila.get("id_visita")))
+        if entidad == "visitas_obra":
+            return self.vivienda_a_solicitud.get(_entero(fila.get("id_vivienda")))
+        if entidad in ("familias", "documentos"):
+            return self.familia_a_solicitud.get(_entero(fila.get("id_familia")))
+        if entidad == "notificaciones":
+            return _entero(fila.get("id_referencia"))
+        return None
+
+
+def vinculos(lectura: Lectura) -> Vinculos:
+    return Vinculos(etapa_a_solicitud=_mapa(lectura.tabla("etapas"), "id_etapa_obra", "id_solicitud"),
+                    vivienda_a_solicitud=_mapa(lectura.tabla("viviendas"), "id_vivienda", "id_solicitud"),
+                    familia_a_solicitud=_mapa(lectura.tabla("solicitudes"), "id_familia", "id_solicitud"),
+                    visita_a_solicitud=_mapa(lectura.tabla("visitas_iniciales"), "id_visita", "id_solicitud"))
+
+
+# --- lo que fecha una sola lectura ---
+
+def _a_las_cero(dia: date) -> datetime:
+    return datetime.combine(dia, time())
+
+
+def _iso(dia) -> str | None:
+    return None if es_vacio(dia) else dia.isoformat()
+
+
+def eventos_de_la_lectura(lectura: Lectura) -> pd.DataFrame:
+    """Lo que una sola foto de las tablas permite fechar (fuente `lectura`): la historia que hay sin base propia y la
+    línea de base de la primera corrida del sincronizador. De cada etapa se ve solo el último envío y la última revisión."""
+    v = vinculos(lectura)
+    filas = []
+
+    def evento(entidad, fila, tipo, momento, precision, **extra):
+        if es_vacio(momento):
+            return
+        filas.append({"entidad": entidad, "clave": clave_de(entidad, fila), "id_solicitud": v.id_solicitud(entidad, fila),
+                      "tipo": tipo, "momento": momento, "precision": precision, "fuente": "lectura", **extra})
+
+    activacion = {}
+    for fila in lectura.tabla("solicitudes").to_dict("records"):
+        evento("solicitudes", fila, "solicitud_registrada", _dia_a_momento(fila["fecha_solicitud"]), "dia")
+        evento("solicitudes", fila, "solicitud_aprobada", _dia_a_momento(fila["fecha_activacion"]), "dia")
+        activacion[_entero(fila["id_solicitud"])] = fila["fecha_activacion"]
+    for fila in lectura.tabla("viviendas").to_dict("records"):
+        evento("viviendas", fila, "vivienda_creada", _dia_a_momento(activacion.get(_entero(fila["id_solicitud"]))), "dia")
+    for fila in lectura.tabla("visitas_iniciales").to_dict("records"):
+        evento("visitas_iniciales", fila, "visita_inicial", fila["fecha_visita"], "exacto")
+    for fila in lectura.tabla("etapas").to_dict("records"):
+        numero = _entero(fila["numero"])
+        evento("etapas", fila, "inicio", _dia_a_momento(fila["fecha_inicio"]), "dia", numero=numero)
+        evento("etapas", fila, "envio", fila["fecha_envio"], "exacto", numero=numero)
+        revision = {"APROBADA": "aprobacion", "RECHAZADA": "rechazo"}.get(fila["estado"], "observacion")
+        evento("etapas", fila, revision, fila["fecha_revision"], "exacto", numero=numero)
+        if not es_vacio(fila["fecha_limite"]) and not es_vacio(fila["fecha_limite_original"]) \
+                and fila["fecha_limite"] != fila["fecha_limite_original"]:
+            evento("etapas", fila, "prorroga", lectura.leido_en, "intervalo", numero=numero,
+                   detalle={"limite_anterior": _iso(fila["fecha_limite_original"]), "limite_nuevo": _iso(fila["fecha_limite"]),
+                            "motivo": None if es_vacio(fila["motivo_prorroga"]) else fila["motivo_prorroga"],
+                            "neta": True})
+    for fila in lectura.tabla("fotos_etapa").to_dict("records"):
+        evento("fotos_etapa", fila, "foto_subida", fila["fecha_subida"], "exacto")
+    for fila in lectura.tabla("documentos").to_dict("records"):
+        evento("documentos", fila, "documento_subido", fila["fecha_subida"], "exacto")
+        if fila["estado"] == "A_CORREGIR":
+            evento("documentos", fila, "documento_a_corregir", fila["fecha_revision"], "exacto")
+    for fila in lectura.tabla("solicitudes_organizacion").to_dict("records"):
+        evento("solicitudes_organizacion", fila, "alta_registrada", _dia_a_momento(fila["fecha_solicitud"]), "dia")
+        evento("solicitudes_organizacion", fila, "alta_aprobada", _dia_a_momento(fila["fecha_aprobacion"]), "dia")
+        evento("solicitudes_organizacion", fila, "alta_rechazada", _dia_a_momento(fila["fecha_rechazo"]), "dia")
+    return tabla_eventos(filas)
+
+
+def _dia_a_momento(dia) -> datetime | None:
+    return None if es_vacio(dia) else _a_las_cero(dia)
+
+
+# --- elegir la historia de cada obra ---
+
+def _primera_notificacion(de_notificaciones: pd.DataFrame) -> dict[int, pd.Timestamp]:
+    return {int(s): t for s, t in de_notificaciones.groupby("id_solicitud")["momento"].min().items()}
+
+
+def obras_con_notificaciones_incompletas(de_notificaciones: pd.DataFrame, etapas: pd.DataFrame) -> set[int]:
+    """Las obras con menos aprobaciones notificadas que etapas aprobadas desde su primera notificación (por ejemplo,
+    una organización sin integrantes con usuario no recibe avisos y Java no los guarda)."""
+    incompletas = set()
+    for id_solicitud, t0 in _primera_notificacion(de_notificaciones).items():
+        notificadas = int(((de_notificaciones["id_solicitud"] == id_solicitud)
+                           & (de_notificaciones["tipo"] == "aprobacion")).sum())
+        de_la_obra = etapas[etapas["id_solicitud"] == id_solicitud]
+        aprobadas = int(((de_la_obra["estado"] == "APROBADA") & (de_la_obra["fecha_revision"] >= t0.floor("min"))).sum())
+        if notificadas < aprobadas:
+            incompletas.add(id_solicitud)
+    return incompletas
+
+
+def _coincide(evento, notificados: pd.DataFrame) -> bool:
+    """Un evento de otra fuente que es el mismo que uno notificado: misma etapa y tipo, y el mismo día (precisión día) o
+    el mismo minuto (precisión exacta; Java guarda envíos y revisiones truncados al minuto)."""
+    mismos = notificados[(notificados["numero"] == evento.numero) & (notificados["tipo"] == evento.tipo)]
+    if evento.precision == "dia":
+        return bool((mismos["momento"].dt.normalize() == evento.momento.normalize()).any())
+    if evento.precision == "exacto":
+        return bool((mismos["momento"].dt.floor("min") == evento.momento.floor("min")).any())
+    return False
+
+
+def elegir_historia_de_etapas(de_notificaciones: pd.DataFrame, otros: pd.DataFrame, etapas: pd.DataFrame) -> pd.DataFrame:
+    """La historia de cada obra: sus notificaciones desde la primera, más los eventos de etapa de otra fuente anteriores
+    a ella que no coincidan con uno notificado. Una obra con notificaciones incompletas usa solo la otra fuente. Los
+    eventos de otras entidades pasan siempre."""
+    incompletas = obras_con_notificaciones_incompletas(de_notificaciones, etapas)
+    primera = {s: t for s, t in _primera_notificacion(de_notificaciones).items() if s not in incompletas}
+    notificados = de_notificaciones[de_notificaciones["id_solicitud"].isin(list(primera))]
+    de_etapas = otros["entidad"] == "etapas"
+    conservar = []
+    for evento in otros[de_etapas].itertuples():
+        id_solicitud = None if pd.isna(evento.id_solicitud) else int(evento.id_solicitud)
+        t0 = primera.get(id_solicitud)
+        if t0 is None:
+            conservar.append(evento.Index)
+        elif evento.momento < t0 and not _coincide(evento, notificados[notificados["id_solicitud"] == id_solicitud]):
+            conservar.append(evento.Index)
+    partes = [p for p in (notificados, otros[de_etapas].loc[conservar], otros[~de_etapas]) if not p.empty]
+    return _ordenar(pd.concat(partes, ignore_index=True) if partes else tabla_eventos([]))
+
+
+def _ordenar(eventos: pd.DataFrame) -> pd.DataFrame:
+    return eventos.sort_values(["momento", "id_solicitud", "entidad", "tipo"], kind="stable").reset_index(drop=True)
+
+
+def eventos_para_contexto(lectura: Lectura, eventos_guardados: pd.DataFrame | None = None,
+                          desfase_horas: int | None = None) -> pd.DataFrame:
+    """Todos los eventos que usan los indicadores y la API: la historia de etapas elegida (notificaciones primero) y los
+    del resto de las entidades. Sin base propia, la otra fuente es lo que fecha la lectura misma."""
+    otros = eventos_guardados if eventos_guardados is not None else eventos_de_la_lectura(lectura)
+    return elegir_historia_de_etapas(eventos_de_notificaciones(lectura, desfase_horas), otros, lectura.tabla("etapas"))
