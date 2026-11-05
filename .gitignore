@@ -1,0 +1,14 @@
+# Secretos y certificados: nunca al repositorio
+.env
+*.pem
+*.crt
+*.key
+
+# Entorno y cachés
+.venv/
+__pycache__/
+.pytest_cache/
+
+# Datos y salidas locales (la base propia, los feriados bajados, los CSV del simulador)
+datos_locales/
+salidas/
