@@ -1,8 +1,9 @@
 import pytest
 
-from analitica.catalogo import (CLASIFICACIONES, ESTADOS_ACTIVOS, ESTADOS_DOCUMENTO, ESTADOS_ETAPA, ESTADOS_SOLICITUD,
-                                ETAPAS, ROLES, TIPOS_CARGO, TIPOS_DOCUMENTO, TIPOS_VIVIENDA, TOTAL_DIAS_ESTIMADOS, etapa,
-                                grupo_organizacion, siguiente)
+from analitica.catalogo import (CLASIFICACIONES, ESTADOS_ACTIVOS, ESTADOS_DOCUMENTO, ESTADOS_ETAPA, ESTADOS_FINALES,
+                                ESTADOS_SOLICITUD, ETAPAS, ROLES, TIPOS_CARGO, TIPOS_DOCUMENTO, TIPOS_NOTIFICACION,
+                                TIPOS_ORGANIZACION, TIPOS_VIVIENDA, TOTAL_DIAS_ESTIMADOS, etapa, grupo_organizacion,
+                                siguiente)
 
 
 def test_las_seis_etapas_como_en_java():
@@ -17,10 +18,26 @@ def test_las_seis_etapas_como_en_java():
 
 
 def test_estados_y_roles_como_los_guarda_la_base():
-    assert ESTADOS_ETAPA == ("PENDIENTE", "EN_CURSO", "EN_REVISION", "PRORROGADA", "OBSERVADA", "APROBADA")
+    assert ESTADOS_ETAPA == ("PENDIENTE", "EN_CURSO", "EN_REVISION", "PRORROGADA", "OBSERVADA", "APROBADA", "RECHAZADA")
     assert ESTADOS_ACTIVOS == ("EN_CURSO", "EN_REVISION", "PRORROGADA", "OBSERVADA")
+    assert ESTADOS_FINALES == ("APROBADA", "RECHAZADA")
     assert ESTADOS_SOLICITUD == ("Pendiente", "SemiAprobada", "Aprobada", "Rechazada")
     assert ROLES == ("ADMIN", "OPERADOR", "ARQUITECTO", "TECNICO", "INTEGRANTE")
+
+
+def test_tipos_de_notificacion_como_los_escribe_etapa_obra_service():
+    assert TIPOS_NOTIFICACION == ("ETAPA_HABILITADA", "ETAPA_ENVIADA", "ETAPA_APROBADA", "ETAPA_OBSERVADA",
+                                  "ETAPA_PRORROGADA", "ETAPA_RECHAZADA")
+
+
+def test_tipos_de_organizacion_de_java():
+    assert TIPOS_ORGANIZACION == {
+        "ASOCIACION_CIVIL": "Asociación Civil", "FUNDACION": "Fundación", "COOPERATIVA": "Cooperativa",
+        "COMUNIDAD_INDIGENA": "Comunidad Indígena", "INSTITUCION_RELIGIOSA": "Institución Religiosa",
+        "CLUB_SOCIAL_Y_DEPORTIVO": "Club Social y Deportivo", "MUTUAL": "Mutual", "OTRA": "Otra"}
+    # Ninguno es OG: un municipio que elija «Otra» se clasifica por el nombre.
+    assert grupo_organizacion("Otra", "Municipalidad de Quimilí").grupo == "OG"
+    assert grupo_organizacion("Fundación", "Fundación Municipal").grupo == "ONG"
 
 
 def test_enums_con_su_valor():

@@ -1,6 +1,6 @@
 """El dominio del sistema de Desarrollo, copiado de sus enums.
 
-Fuente: `Model/*.java` del repositorio PaganiB/vivso (revisado el 21/10/2026). La base guarda el nombre del enum
+Fuente: `Model/*.java` del repositorio PaganiB/vivso (revisado el 04/11/2026 en la rama develop). La base guarda el nombre del enum
 (`TIPO_1A`) y la API de Java devuelve su valor (`"1a"`); todo el servicio guarda el nombre, como la base.
 """
 import re
@@ -53,8 +53,14 @@ def siguiente(codigo: str) -> Etapa | None:
 
 
 # EstadoEtapa.java. La etapa «activa» es la que le toca a la obra ahora: ya empezó y todavía no está aprobada.
-ESTADOS_ETAPA = ("PENDIENTE", "EN_CURSO", "EN_REVISION", "PRORROGADA", "OBSERVADA", "APROBADA")
+# RECHAZADA es final: ninguna regla de Java saca una etapa de ese estado y la obra queda detenida.
+ESTADOS_ETAPA = ("PENDIENTE", "EN_CURSO", "EN_REVISION", "PRORROGADA", "OBSERVADA", "APROBADA", "RECHAZADA")
 ESTADOS_ACTIVOS = ("EN_CURSO", "EN_REVISION", "PRORROGADA", "OBSERVADA")
+ESTADOS_FINALES = ("APROBADA", "RECHAZADA")
+
+# Los tipos que guarda NotificacionService desde EtapaObraService, uno por acción sobre una etapa.
+TIPOS_NOTIFICACION = ("ETAPA_HABILITADA", "ETAPA_ENVIADA", "ETAPA_APROBADA", "ETAPA_OBSERVADA", "ETAPA_PRORROGADA",
+                      "ETAPA_RECHAZADA")
 
 # EstadoSolicitud.java: lo usan la solicitud de vivienda y el alta de organizaciones.
 ESTADOS_SOLICITUD = ("Pendiente", "SemiAprobada", "Aprobada", "Rechazada")
@@ -111,6 +117,14 @@ TIPOS_DOCUMENTO = {t.codigo: t for t in (
     TipoDocumento("OTRO", "Otro", "otro"),
 )}
 
+
+# TipoOrganizacion.java: nombre del enum → descripción. Solo de referencia: la columna `tipo` sigue siendo texto libre, y
+# no hay un tipo para Municipio ni Comisión Municipal (un municipio elegiría «Otra» y el grupo sale del nombre).
+TIPOS_ORGANIZACION = {
+    "ASOCIACION_CIVIL": "Asociación Civil", "FUNDACION": "Fundación", "COOPERATIVA": "Cooperativa",
+    "COMUNIDAD_INDIGENA": "Comunidad Indígena", "INSTITUCION_RELIGIOSA": "Institución Religiosa",
+    "CLUB_SOCIAL_Y_DEPORTIVO": "Club Social y Deportivo", "MUTUAL": "Mutual", "OTRA": "Otra",
+}
 
 # Organizaciones en dos grupos, con la regla del informe OG/ONG: en Java el tipo es texto libre.
 GRUPOS_ORGANIZACION = ("OG", "ONG")
